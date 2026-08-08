@@ -1,0 +1,42 @@
+# Common base — concatenate with template/<lang>/.gitignore
+
+node_modules/
+.env
+.env.local
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.claude/
+# Go-specific — append to common/.gitignore
+
+# Build output
+bin/
+dist/
+
+# Windows executables
+*.exe
+
+# Go test cache / coverage
+*.test
+*.out
+coverage.txt
+coverage.out
+
+# goreleaser
+.goreleaser-dist/
+
+# Derived release artifact — must not be committed
+release-notes.md
+
+# Key material never belongs in the tree (SEC-SPEC §4). Secrets live in the
+# state directory; this is a backstop against a stray copy.
+*.pem
+*.key
+
+# Internal reverse-engineering notes: the upstream API map and the acceptance
+# matrix. They stay on the maintainer's disk, as in the rest of this fleet.
+references/

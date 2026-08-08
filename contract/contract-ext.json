@@ -1,0 +1,8 @@
+{
+  "error_codes": {
+    "E_HUMAN_REQUIRED": {
+      "exit": 9,
+      "retryable": false
+    }
+  }
+}

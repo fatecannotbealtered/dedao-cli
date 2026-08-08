@@ -1,0 +1,30 @@
+{
+  "name": "status",
+  "command": [
+    "status"
+  ],
+  "interactions": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "https://www.dedao.cn/api/pc/user/info",
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+          "Accept-Encoding": "gzip, deflate",
+          "Accept": "application/json, text/plain, */*",
+          "Connection": "keep-alive",
+          "xi-dt": "web",
+          "Referer": "https://www.dedao.cn/",
+          "xi-csrf-token": "redacted-csrf-token"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "Content-Type": "text/html; charset=utf-8"
+        },
+        "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\"/>\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\">\n    <link rel=\"icon\" href=\"data:;base64,=\">\n    <link href=\"https://piccdn2.umiwi.com/agw/style.css\" rel=\"stylesheet\">\n    <title>www.dedao.cn | 401: Unauthorized</title>\n</head>\n\n<body>\n<div class=\"layout\">\n    <div class=\"header\">\n        <h1>\n            <span>Error</span>\n            <span>401</span>\n            <small class=\"heading-ray-id\">Trace ID: fca857200253001 • 2026-08-06 22:03:30</small>\n        </h1>\n        <h2 class=\"subheadline\">Unauthorized</h2>\n    </div>\n    <div class=\"content\">\n        \n        <img src=\"https://piccdn2.umiwi.com/agw/server-error.png\" alt=\"server-error.png\">\n        \n        <p>blocked by AuthorizedUidAndDev: 36301881_758b2a2519318934968d4448675fe29c</p>\n    </div>\n    <div class=\"footer\">\n        <span class=\"footer-item\">Igetget TID: <strong>fca857200253001</strong></span>\n        <span class=\"footer-separator\">•</span>\n        <span class=\"footer-item\">Your IP: 69.165.77.163</span>\n        <span class=\"footer-separator\">•</span>\n        <span class=\"footer-item\">\n            Performance & security by\n            <a href=\"https://www.igetget.com\" target=\"_blank\">igetget</a>.\n        </span>\n    </div>\n</div>\n</body>\n</html>\n"
+      }
+    }
+  ]
+}
