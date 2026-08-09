@@ -357,16 +357,6 @@ func businessCode(value any) string {
 	return "E_SERVER"
 }
 
-// getnoteBusinessCode maps the documented GetNote OpenAPI business codes.
-// These failures can arrive with HTTP 200, so classifying them by HTTP status
-// alone would incorrectly make permanent auth/validation failures retryable.
-func getnoteBusinessCode(value any) string {
-	if code, known := knownGetnoteBusinessCode(value); known {
-		return code
-	}
-	return "E_SERVER"
-}
-
 func knownGetnoteBusinessCode(value any) (string, bool) {
 	switch asInt(value) {
 	case 10000:
