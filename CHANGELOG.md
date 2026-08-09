@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-10
+
+### Added
+
+- Added a dedicated `getnote` namespace backed by GetNote's official OpenAPI:
+  encrypted API credential setup, note save/list/detail/update/delete/share,
+  asynchronous task status, semantic search, tag management, and knowledge-base
+  listing and note organization.
+- Added GetNote capability and security guidance to `reference`, `context`,
+  `doctor`, the bundled Skill, and both READMEs.
+- Added `getnote save --idempotency-key` forwarding for safe create retries.
+- `context` now distinguishes GetNote environment, encrypted-store, and mixed
+  credential sources; `doctor` uses a bounded read-only request before it marks
+  configured GetNote credentials valid.
+
+### Security
+
+- Every GetNote upstream write now requires a dry-run preview and a five-minute,
+  single-use confirmation token bound to the exact command, request payload,
+  credential context, and available target version. Changed arguments,
+  credentials, target state, expired tokens, and replayed tokens fail before
+  any mutation request is sent.
+- GetNote API keys and client IDs use the existing AES-256-GCM secret store in
+  an isolated state subdirectory; credentials are never written to GetNote's
+  legacy plaintext config format or emitted in command output.
+- Structured upstream error details are preserved under an explicitly
+  `_untrusted` field while the stable top-level error message remains local.
+
+### Changed
+
+- The T1 threat model now includes explicitly confirmed GetNote writes while
+  preserving the existing read-only boundary for every Dedao endpoint.
+
 ## [1.0.0] - 2026-08-09
 
 ### Fixed
@@ -209,6 +242,8 @@ Keep the link references at the bottom of the file in sync.
 
 ### Security
 
-[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.0.0
 -->
+
+[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.1.0
+[1.0.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.0.0

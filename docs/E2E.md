@@ -5,10 +5,12 @@
 Dedao has no sandbox and no test account tier. The only environment is the live
 service, read with a real signed-in account. That shapes everything below.
 
-The blast radius is nil: every upstream command is read-only — the tool never
-purchases, comments, follows, or mutates progress — so an E2E run cannot change
-anything in the account. The risk is entirely on the other side: rate limiting,
-and exposing the account session.
+Dedao smoke commands have no mutation blast radius: they never purchase,
+comment, follow, or change progress. GetNote has no disposable environment
+either, so its write commands are tested with `--dry-run` by default. A live
+confirmed-write smoke must use a clearly named disposable note created for that
+run and remove it before the run ends. Account credentials and personal content
+remain the primary exposure risk.
 
 ## Layers
 
@@ -38,6 +40,11 @@ dedao-cli articles <course-enid> --count 1 --compact # -> an article enid
 # Then run each command and compare its data keys to the declared fields.
 dedao-cli course <course-enid> --compact
 dedao-cli article <article-enid> --render text --compact
+
+# GetNote reads and safe mutation previews:
+dedao-cli getnote auth status --compact
+dedao-cli getnote notes --limit 1 --compact
+dedao-cli getnote save --content "dedao-cli live smoke disposable note" --dry-run --compact
 ```
 
 A command whose live `data` keys differ from its declared `output_schema.fields`
@@ -56,6 +63,9 @@ verified date in [COMPATIBILITY.md](COMPATIBILITY.md).
   machine.
 - **Do not test `login` repeatedly.** It requires a human to scan a QR code, and
   hammering it looks exactly like an attack.
+- **Do not confirm GetNote writes during a routine smoke.** If confirmed-write
+  coverage is explicitly required, use one disposable note, record its ID, and
+  delete only that note through a separately previewed and confirmed command.
 
 ## What a failing live run means
 

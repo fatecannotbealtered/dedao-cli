@@ -15,7 +15,7 @@ func (a *application) applyLimit(cmd *cobra.Command) error {
 	if a.limit <= 0 {
 		return output.NewError("E_VALIDATION", "--limit must be greater than zero", nil)
 	}
-	for _, name := range []string{"page-size", "count"} {
+	for _, name := range []string{"page-size", "count", "top-k"} {
 		flag := cmd.Flags().Lookup(name)
 		if flag == nil {
 			continue

@@ -1,7 +1,7 @@
 <h1 align="center">dedao-cli</h1>
 
 <p align="center">
-  <strong>面向 AI Agent 的得到（Dedao）Agent 原生 CLI —— 只读访问账号自己的课程、文章正文、电子书、听书、笔记与话题 &middot; JSON 优先 &middot; 无需浏览器</strong>
+  <strong>面向 AI Agent 的得到阅读与 GetNote 笔记管理 CLI &middot; JSON 优先 &middot; 无需浏览器</strong>
 </p>
 
 <p align="center">
@@ -17,10 +17,10 @@
 <p align="center">
   <img alt="Agent native" src="https://img.shields.io/badge/agent-native-111827?style=for-the-badge">
   <img alt="JSON first" src="https://img.shields.io/badge/output-JSON--first-0891B2?style=for-the-badge">
-  <img alt="Read only" src="https://img.shields.io/badge/upstream-read--only-16A34A?style=for-the-badge">
+  <img alt="Confirm gated writes" src="https://img.shields.io/badge/GetNote_writes-confirm--gated-16A34A?style=for-the-badge">
 </p>
 
-> 面向 AI Agent 的得到（Dedao）Agent 原生 CLI —— 只读访问账号自己的课程、文章正文、电子书、听书、笔记与话题。
+> 用一个机器可读 CLI 阅读已拥有的得到内容，并管理官方 GetNote 服务中的笔记。
 
 ## Agent 安装
 
@@ -47,9 +47,9 @@ PowerShell 使用 `$env:NAME = "value"` 设置同样的环境变量。真实密�
 
 `dedao-cli` 是 AI Agent 优先的 CLI。默认输出 JSON，实时命令面通过 `dedao-cli reference` 发现。
 
-所有上游命令都是**只读**的：本工具从不购买、评论、关注或修改学习进度。会写入的命令只写本地：`login` 与 `login-resume` 保存会话；具有删除性的 `logout` 必须先执行 `logout --dry-run`，再用返回的 token 执行 `logout --confirm <confirm_token>`，才能删除保存的凭据（CLI-SPEC §7）。
+得到命令仍然全部**只读**：本工具从不购买、评论、关注或修改学习进度。`getnote` 命名空间通过 GetNote 官方 OpenAPI 创建、更新、删除、打标签、分享、搜索和整理笔记。每个 GetNote 上游写操作都必须先用 `--dry-run` 预览，再用与具体操作、参数、凭据上下文及可用目标版本绑定的 `--confirm <confirm_token>` 执行。
 
-最坏情况风险等级：**T1** —— 所有上游命令都是只读的，本工具从不购买、评论或修改账号状态；但它持有账号级的得到登录会话，一旦泄漏即暴露账号，因此凭据处理遵循 T1 基线。参见 [SECURITY.md](SECURITY.md) 和 [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md)。
+最坏情况风险等级：**T1** —— 工具持有账号凭据，并能执行显式确认过的 GetNote 变更。得到保持只读；GetNote 的写入范围仅限笔记、标签、公开分享链接和知识库成员关系。参见 [SECURITY.md](SECURITY.md) 和 [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md)。
 
 ## 能力
 
@@ -60,15 +60,40 @@ PowerShell 使用 `$env:NAME = "value"` 设置同样的环境变量。真实密�
 | 书与音频 | `ebook`、`ebook-chapters`、`ebook-read`、`ebook-community`、`audiobook`、`audiobook-alias`、`audiobook-agency`、`audiobook-collection`、`audiobook-vip`、`audiobook-media` | 读取已购电子书的目录与章节正文、把已授权听书存到本地，以及读取听书元数据与会员状态。 |
 | 搜索 | `search`、`search-type`、`search-suggest`、`search-hot` | 搜索已购内容或指定范围。 |
 | 发现 | `discover`、`labels`、`label-content`、`free`、`live`、`channel`、`channel-topic`、`channel-articles`、`topics`、`topic`、`note` | 浏览知识城邦、标签、免费资源与直播。 |
+| GetNote | `getnote auth`、`getnote save`、`getnote notes`、`getnote note`、`getnote search`、`getnote tag`、`getnote kbs`、`getnote kb` | 安全保存 GetNote 凭据；读取、搜索、写入、打标签、分享和整理笔记。 |
 | 会话 | `login`、`login-resume`、`logout`、`status` | 扫码登录需要人参与；两步配方见 Skill。 |
 | 自描述 | `reference`、`context`、`doctor`、`changelog`、`update` | 用实时能力和版本变化引导 Agent。 |
 
 README 只做地图，不做完整手册。Agent 在执行任务命令前，应调用 `dedao-cli reference --compact` 获取准确的 flags、schemas、权限、退出码和错误码。
 
+## GetNote 配置与写入
+
+从 GetNote 获取 API key 和 client ID，然后把它们保存到与得到会话相同的加密凭据系统中。GetNote 文件位于独立的 `getnote/` 子目录，不与得到 cookie 混用。
+
+`context.data.credentials.getnote` 会分别报告两个值来自环境变量还是加密存储（包括混合配置）。`doctor` 只有在完成一次有界、只读的请求后，才会把已配置的 GetNote 凭据标记为有效。
+
+```bash
+printf '%s' "$GETNOTE_API_KEY" | dedao-cli getnote auth login --api-key-stdin --client-id "$GETNOTE_CLIENT_ID" --compact
+dedao-cli getnote auth status --compact
+dedao-cli getnote notes --limit 20 --compact
+dedao-cli getnote search "认知" --top-k 10 --compact
+```
+
+每次写入都先预览，保持参数完全一致，再使用返回的 token：
+
+```bash
+dedao-cli getnote save --content "读书笔记" --dry-run --compact
+dedao-cli getnote save --content "读书笔记" --confirm <confirm_token> --compact
+```
+
+创建操作如果可能需要安全重试，请自行选择稳定的 `--idempotency-key`，并在两步命令中保持完全一致。
+
+笔记更新/删除/分享、标签增删、知识库创建及笔记移入移出都遵循相同流程。针对已有笔记的 dry-run 可能读取笔记元数据以绑定 `version` / `updated_at`，但绝不会发送变更请求。参数、凭据、目标状态发生变化，或 token 过期/重复使用，都会返回 `E_CONFLICT`，且不会发送变更请求。
+
 ## Agent 工作流
 
 1. 用上面的代码块安装 CLI 和 Skill。
-2. 用 `dedao-cli login` 登录（由人扫码）；状态目录里的任何内容都不要提交。
+2. 用 `dedao-cli login` 登录得到（由人扫码）。需要笔记管理时，再运行 `dedao-cli getnote auth login` 配置 GetNote；状态目录里的任何内容都不要提交。
 3. 运行 `dedao-cli context --compact` 和 `dedao-cli doctor --compact`。
 4. 运行 `dedao-cli reference --compact`，按实时契约选择命令，不从 `--help` 抓取参数。
 5. JSON 输出优先使用 `--compact` 和 `--fields` 降低 token 消耗。
@@ -86,16 +111,18 @@ README 只做地图，不做完整手册。Agent 在执行任务命令前，应�
 
 ## 配置
 
-状态位置：`~/.dedao-api/` —— 会话 cookie。没有配置文件，也没有任何环境变量能提供会话：它来自 `dedao-cli login`。
+状态位置：`~/.dedao-api/`。得到 cookie 位于根目录；加密的 GetNote 凭据位于 `getnote/` 子目录。不存在明文凭据配置文件。
 
 | 变量 | 用途 |
 |------|------|
 | `DEDAO_HOME` | 会话目录，覆盖上面的默认值（也可用 `--state-dir`） |
 | `DEDAO_ENV` | `context` 报告的自由格式环境标签 |
 | `DEDAO_SECRET_BACKEND` | 强制使用 `file` 后端，跳过操作系统钥匙串 |
+| `GETNOTE_API_KEY` | 不落盘地提供 GetNote API key，或作为 `getnote auth login` 的输入 |
+| `GETNOTE_CLIENT_ID` | 提供对应的 GetNote client ID |
 | `NO_COLOR` | 显式使用 text 模式时禁用彩色输出 |
 
-密钥以 AES-256-GCM 封存；加密密钥取自操作系统钥匙串，无钥匙串的环境则由机器绑定因子派生。`context.data.credentials.storage` 报告当前生效的后端。会话存放在状态目录，绝不进入版本库，也绝不被输出。详见 [SECURITY.md](SECURITY.md)。
+密钥以 AES-256-GCM 封存；加密密钥取自操作系统钥匙串，无钥匙串的环境则由机器绑定因子派生。`context.data.credentials.storage` 报告得到会话后端，`context.data.credentials.getnote.storage` 则可能是 `environment`、`mixed`、`keyring` 或 `encrypted-file`。会话存放在状态目录，绝不进入版本库，也绝不被输出。详见 [SECURITY.md](SECURITY.md)。
 
 ## 项目结构
 

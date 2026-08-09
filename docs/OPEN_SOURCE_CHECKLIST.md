@@ -26,7 +26,7 @@ Run through this gate **before the first public push** of `dedao-cli`. It is a s
 - [ ] `SECURITY.md` is present with a working disclosure channel (`guosong6886@gmail.com`) and a supported-versions table.
 - [ ] `CONTRIBUTING.md` is present (env setup, branch/commit, test, PR flow).
 - [ ] `CODE_OF_CONDUCT.md` is present (Contributor Covenant) if the project accepts external contributions.
-- [ ] If `dedao-cli` wraps a third-party product (Dedao (得到)), `NOTICE.md` carries the trademark / non-affiliation notice and `docs/COMPATIBILITY.md` lists the verified backend version matrix.
+- [ ] If `dedao-cli` wraps a third-party product (Dedao (得到) or GetNote (得到笔记)), `NOTICE.md` carries the trademark / non-affiliation notice and `docs/COMPATIBILITY.md` lists the verified backend version matrix.
 
 ## Build / CI
 

@@ -145,10 +145,15 @@ func stateDir(t *testing.T, authenticated bool) string {
 func runCLI(t *testing.T, mock *mockUpstream, args ...string) result {
 	t.Helper()
 	previous := baseURLOverride
+	previousGetnote := getnoteBaseURLOverride
 	if mock != nil {
 		baseURLOverride = mock.server.URL
+		getnoteBaseURLOverride = mock.server.URL
 	}
-	t.Cleanup(func() { baseURLOverride = previous })
+	t.Cleanup(func() {
+		baseURLOverride = previous
+		getnoteBaseURLOverride = previousGetnote
+	})
 
 	var stdout, stderr bytes.Buffer
 	exit := ExecuteArgs(context.Background(), args, strings.NewReader(""), &stdout, &stderr)

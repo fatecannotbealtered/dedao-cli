@@ -16,6 +16,7 @@ import (
 
 	dedaocli "github.com/fatecannotbealtered/dedao-cli"
 	"github.com/fatecannotbealtered/dedao-cli/internal/dedao"
+	getnoteapi "github.com/fatecannotbealtered/dedao-cli/internal/getnote"
 	"github.com/fatecannotbealtered/dedao-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -90,7 +91,7 @@ func ExecuteArgs(ctx context.Context, args []string, in io.Reader, stdout, stder
 func (a *application) rootCommand() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "dedao-cli",
-		Short:         "Read-only Dedao (得到) access for AI agents",
+		Short:         "Dedao reading and GetNote note management for AI agents",
 		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -100,7 +101,7 @@ func (a *application) rootCommand() *cobra.Command {
 			}
 			// Resolved here, from the leaf command about to run, so the marker
 			// on `data` is exactly the list `reference` declares for it.
-			a.untrusted = untrustedFieldsFor(cmd.Name())
+			a.untrusted = untrustedFieldsForCommand(cmd)
 			return a.validateOutput(cmd)
 		},
 	}
@@ -130,6 +131,7 @@ func (a *application) rootCommand() *cobra.Command {
 		a.audiobookMediaCommand,
 		a.dailyCommand,
 		a.updateCommand,
+		a.getnoteCommand,
 	} {
 		root.AddCommand(add())
 	}
@@ -259,6 +261,11 @@ func asCLIError(err error) *output.CLIError {
 	if errors.Is(err, dedao.ErrAuthRequired) {
 		return output.WrapError("E_AUTH", err.Error(), err, nil)
 	}
+	if errors.Is(err, getnoteapi.ErrAuthRequired) {
+		return output.WrapError("E_AUTH", err.Error(), err, map[string]any{
+			"hint": "Run 'dedao-cli getnote auth login' with a GetNote API key and client ID.",
+		})
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return output.WrapError("E_TIMEOUT", "operation timed out", err, nil)
 	}
@@ -279,6 +286,32 @@ func asCLIError(err error) *output.CLIError {
 		}
 		return output.WrapError(code, apiErr.Error(), err, details)
 	}
+	var getnoteErr *getnoteapi.APIError
+	if errors.As(err, &getnoteErr) {
+		details := map[string]any{"hint": "Check GetNote credentials and the request; retry only for a retryable code."}
+		code := "E_SERVER"
+		if getnoteErr.BusinessCode != nil {
+			details["business_code"] = getnoteErr.BusinessCode
+			if businessCode, known := knownGetnoteBusinessCode(getnoteErr.BusinessCode); known {
+				code = businessCode
+			} else if getnoteErr.StatusCode > 0 {
+				code = output.CodeForStatus(getnoteErr.StatusCode)
+			}
+		} else if getnoteErr.StatusCode > 0 {
+			code = output.CodeForStatus(getnoteErr.StatusCode)
+		}
+		if getnoteErr.StatusCode > 0 {
+			details["status_code"] = getnoteErr.StatusCode
+		}
+		if len(getnoteErr.Details) > 0 {
+			details["upstream"] = getnoteErr.Details
+			details["_untrusted"] = []string{"upstream"}
+		}
+		if code == "E_AUTH" {
+			details["hint"] = "Run 'dedao-cli getnote auth login' with a valid GetNote API key and client ID."
+		}
+		return output.WrapError(code, getnoteErrorMessage(code), err, details)
+	}
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
@@ -288,6 +321,25 @@ func asCLIError(err error) *output.CLIError {
 		return output.WrapError("E_NETWORK", "upstream network request failed", err, nil)
 	}
 	return output.WrapError("E_USAGE", err.Error(), err, nil)
+}
+
+func getnoteErrorMessage(code string) string {
+	switch code {
+	case "E_AUTH":
+		return "GetNote rejected the configured credentials"
+	case "E_FORBIDDEN":
+		return "GetNote denied access to the requested resource"
+	case "E_NOT_FOUND":
+		return "GetNote could not find the requested resource"
+	case "E_VALIDATION":
+		return "GetNote rejected the request"
+	case "E_CONFLICT":
+		return "GetNote reported a state conflict"
+	case "E_RATE_LIMITED":
+		return "GetNote rate-limited the request"
+	default:
+		return "GetNote upstream request failed"
+	}
 }
 
 // businessCode classifies Dedao's in-band error codes.
@@ -303,6 +355,35 @@ func businessCode(value any) string {
 		return "E_NOT_FOUND"
 	}
 	return "E_SERVER"
+}
+
+// getnoteBusinessCode maps the documented GetNote OpenAPI business codes.
+// These failures can arrive with HTTP 200, so classifying them by HTTP status
+// alone would incorrectly make permanent auth/validation failures retryable.
+func getnoteBusinessCode(value any) string {
+	if code, known := knownGetnoteBusinessCode(value); known {
+		return code
+	}
+	return "E_SERVER"
+}
+
+func knownGetnoteBusinessCode(value any) (string, bool) {
+	switch asInt(value) {
+	case 10000:
+		return "E_VALIDATION", true
+	case 10001, 10004:
+		return "E_AUTH", true
+	case 10100, 10500:
+		return "E_NOT_FOUND", true
+	case 10201:
+		return "E_FORBIDDEN", true
+	case 10202, 42900:
+		return "E_RATE_LIMITED", true
+	case 10502:
+		return "E_CONFLICT", true
+	default:
+		return "", false
+	}
 }
 
 func asInt(value any) int {

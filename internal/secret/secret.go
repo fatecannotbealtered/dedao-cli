@@ -103,6 +103,23 @@ func (s *Store) Backend() string {
 	return BackendFile
 }
 
+// StoredBackend reports the backend recorded in one sealed secret. The header
+// is intentionally plaintext and contains no credential data.
+func (s *Store) StoredBackend(name string) string {
+	raw, err := os.ReadFile(s.path(name))
+	if err != nil {
+		return ""
+	}
+	var sealed envelope
+	if err := json.Unmarshal(raw, &sealed); err != nil {
+		return ""
+	}
+	if sealed.Backend == BackendKeyring || sealed.Backend == BackendFile {
+		return sealed.Backend
+	}
+	return ""
+}
+
 // dataKey returns the 32-byte key for one secret, creating it if needed.
 func (s *Store) dataKey(name string, backend string, salt []byte) ([]byte, error) {
 	if backend == BackendKeyring {
@@ -198,8 +215,11 @@ var ErrNotFound = errors.New("no stored secret")
 // Load opens a sealed secret.
 func (s *Store) Load(name string) ([]byte, error) {
 	raw, err := os.ReadFile(s.path(name))
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
 	}
 	var sealed envelope
 	if err := json.Unmarshal(raw, &sealed); err != nil {

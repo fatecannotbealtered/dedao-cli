@@ -26,7 +26,7 @@
 - [ ] `SECURITY.md` 存在，含可用的披露渠道（`guosong6886@gmail.com`）和受支持版本表。
 - [ ] `CONTRIBUTING.md` 存在（环境搭建、分支/提交、测试、PR 流程）。
 - [ ] 若项目接受外部贡献，`CODE_OF_CONDUCT.md` 存在（Contributor Covenant）。
-- [ ] 若 `dedao-cli` 包装第三方产品（Dedao (得到)），`NOTICE.md` 载明商标 / 非隶属声明，且 `docs/COMPATIBILITY.md` 列出已验证的后端版本矩阵。
+- [ ] 若 `dedao-cli` 包装第三方产品（Dedao（得到）或 GetNote（得到笔记）），`NOTICE.md` 载明商标 / 非隶属声明，且 `docs/COMPATIBILITY.md` 列出已验证的后端版本矩阵。
 
 ## 构建 / CI
 

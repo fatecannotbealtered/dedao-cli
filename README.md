@@ -1,7 +1,7 @@
 <h1 align="center">dedao-cli</h1>
 
 <p align="center">
-  <strong>Agent-native CLI for Dedao (得到) - read-only access to the account's own courses, article text, ebooks, audiobooks, notes, and topics &middot; JSON-first &middot; no browser</strong>
+  <strong>Agent-native CLI for reading Dedao (得到) and managing GetNote notes &middot; JSON-first &middot; no browser</strong>
 </p>
 
 <p align="center">
@@ -17,10 +17,10 @@
 <p align="center">
   <img alt="Agent native" src="https://img.shields.io/badge/agent-native-111827?style=for-the-badge">
   <img alt="JSON first" src="https://img.shields.io/badge/output-JSON--first-0891B2?style=for-the-badge">
-  <img alt="Read only" src="https://img.shields.io/badge/upstream-read--only-16A34A?style=for-the-badge">
+  <img alt="Confirm gated writes" src="https://img.shields.io/badge/GetNote_writes-confirm--gated-16A34A?style=for-the-badge">
 </p>
 
-> Agent-native CLI for Dedao (得到) - read-only access to the account's own courses, article text, ebooks, audiobooks, notes, and topics.
+> Read owned Dedao content and manage notes in the official GetNote service through one machine-readable CLI.
 
 ## Agent Install
 
@@ -47,9 +47,9 @@ PowerShell uses `$env:NAME = "value"` for the same environment variables. Keep r
 
 `dedao-cli` is designed for AI Agents first. JSON is the default output and the live command surface is discoverable through `dedao-cli reference`.
 
-Every upstream command is **read-only**: the tool never purchases, comments, follows, or mutates progress. The commands that write anything write locally only: `login` and `login-resume` save the session, while the destructive `logout` flow requires `logout --dry-run` followed by `logout --confirm <confirm_token>` before it removes stored credentials (CLI-SPEC §7).
+Dedao commands remain **read-only**: the tool never purchases, comments, follows, or mutates progress. The `getnote` namespace can create, update, delete, tag, share, search, and organize notes through GetNote's official OpenAPI. Every GetNote upstream write requires a `--dry-run` preview followed by `--confirm <confirm_token>` bound to the exact operation, arguments, credential context, and available target version.
 
-Worst-case risk tier: **T1** - every upstream command is read-only and the tool never purchases, comments, or mutates account state, but it holds an account-level Dedao login session whose leak would expose the account, so credential handling follows the T1 baseline. See [SECURITY.md](SECURITY.md) and [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md).
+Worst-case risk tier: **T1** - the tool holds account credentials and can make explicitly confirmed GetNote changes. Dedao remains read-only, while GetNote writes are limited to notes, tags, public share links, and knowledge-base membership. See [SECURITY.md](SECURITY.md) and [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md).
 
 ## Capabilities
 
@@ -60,15 +60,44 @@ Worst-case risk tier: **T1** - every upstream command is read-only and the tool 
 | Books and audio | `ebook`, `ebook-chapters`, `ebook-read`, `ebook-community`, `audiobook`, `audiobook-alias`, `audiobook-agency`, `audiobook-collection`, `audiobook-vip`, `audiobook-media` | Read an owned ebook's contents and chapters, save an authorized audiobook locally, and read 听书 metadata and membership state. |
 | Search | `search`, `search-type`, `search-suggest`, `search-hot` | Search owned content or a named scope. |
 | Discovery | `discover`, `labels`, `label-content`, `free`, `live`, `channel`, `channel-topic`, `channel-articles`, `topics`, `topic`, `note` | Browse 知识城邦, labels, free resources, and live sessions. |
+| GetNote | `getnote auth`, `getnote save`, `getnote notes`, `getnote note`, `getnote search`, `getnote tag`, `getnote kbs`, `getnote kb` | Store GetNote credentials securely; read, search, write, tag, share, and organize notes. |
 | Session | `login`, `login-resume`, `logout`, `status` | QR login needs a human; see the Skill for the two-step recipe. |
 | Self-description | `reference`, `context`, `doctor`, `changelog`, `update` | Bootstrap an Agent with live capabilities and version deltas. |
 
 The README is intentionally a map, not the full manual. Agents should call `dedao-cli reference --compact` for exact flags, schemas, permissions, exit codes, and error codes before executing task commands.
 
+## GetNote setup and writes
+
+Get an API key and client ID from GetNote, then store them in the same encrypted credential system as the Dedao session. The GetNote files live in the isolated `getnote/` subdirectory and are never mixed with Dedao cookies.
+
+`context.data.credentials.getnote` reports whether each value comes from the
+environment or encrypted store (including a mixed setup). `doctor` makes one
+bounded read-only request before reporting configured GetNote credentials as
+valid.
+
+```bash
+printf '%s' "$GETNOTE_API_KEY" | dedao-cli getnote auth login --api-key-stdin --client-id "$GETNOTE_CLIENT_ID" --compact
+dedao-cli getnote auth status --compact
+dedao-cli getnote notes --limit 20 --compact
+dedao-cli getnote search "认知" --top-k 10 --compact
+```
+
+Preview every write, preserve the arguments exactly, then use the returned token:
+
+```bash
+dedao-cli getnote save --content "读书笔记" --dry-run --compact
+dedao-cli getnote save --content "读书笔记" --confirm <confirm_token> --compact
+```
+
+For a create that may need a safe retry, choose a stable `--idempotency-key`
+and repeat the same key in both steps.
+
+The same flow applies to note update/delete/share, tag add/remove, and knowledge-base create/add/remove. Targeted dry-runs may read note metadata to bind `version`/`updated_at`, but never send a mutation. Changed arguments, credentials, target state, expiry, or token reuse return `E_CONFLICT` without sending the mutation.
+
 ## Agent Workflow
 
 1. Install the CLI and Skill with the block above.
-2. Sign in with `dedao-cli login` (a human scans the QR); never commit anything from the state directory.
+2. Sign in to Dedao with `dedao-cli login` (a human scans the QR). If note management is needed, configure GetNote with `dedao-cli getnote auth login`; never commit anything from the state directory.
 3. Run `dedao-cli context --compact` and `dedao-cli doctor --compact`.
 4. Run `dedao-cli reference --compact` and select commands from the live contract, not from `--help` scraping.
 5. Prefer `--compact` and `--fields` on JSON outputs to reduce token use.
@@ -86,16 +115,18 @@ The README is intentionally a map, not the full manual. Agents should call `deda
 
 ## Configuration
 
-State location: `~/.dedao-api/` — the session cookie jar. There is no config file, and there is no environment variable that supplies a session: it comes from `dedao-cli login`.
+State location: `~/.dedao-api/`. Dedao cookies live at the root; encrypted GetNote credentials live under `getnote/`. There is no plaintext credential config file.
 
 | Variable | Purpose |
 |----------|---------|
 | `DEDAO_HOME` | Session directory; overrides the default above (also `--state-dir`) |
 | `DEDAO_ENV` | Free-form environment label reported by `context` |
 | `DEDAO_SECRET_BACKEND` | Force the secret backend to `file`, skipping the OS keyring |
+| `GETNOTE_API_KEY` | Supply a GetNote API key without persisting it, or as input to `getnote auth login` |
+| `GETNOTE_CLIENT_ID` | Supply the corresponding GetNote client ID |
 | `NO_COLOR` | Disable colored text output when text mode is explicitly requested |
 
-Secrets are sealed with AES-256-GCM; the key comes from the OS keyring, or from machine-bound key derivation where no keyring exists. `context.data.credentials.storage` reports which backend is live. The session lives in the state directory, never in the repository, and is never emitted. See [SECURITY.md](SECURITY.md).
+Secrets are sealed with AES-256-GCM; the key comes from the OS keyring, or from machine-bound key derivation where no keyring exists. `context.data.credentials.storage` reports the Dedao backend, while `context.data.credentials.getnote.storage` may report `environment`, `mixed`, `keyring`, or `encrypted-file`. The session lives in the state directory, never in the repository, and is never emitted. See [SECURITY.md](SECURITY.md).
 
 ## Project Structure
 

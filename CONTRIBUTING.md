@@ -2,7 +2,7 @@
 
 *English | [中文](CONTRIBUTING_zh.md)*
 
-Thanks for improving **dedao-cli** — Dedao (得到) CLI for AI Agents - read-only access to owned courses, articles, ebooks, audiobooks, notes, topics, and daily summaries. This document covers building, testing, and submitting changes.
+Thanks for improving **dedao-cli** — the AI-native CLI for read-only Dedao access and confirmation-gated GetNote note management. This document covers building, testing, and submitting changes.
 
 > This is a side project shared for AI-tooling experimentation; maintainers do not provide commercial support or production guarantees — see the README disclaimer.
 

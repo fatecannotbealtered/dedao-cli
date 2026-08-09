@@ -2,7 +2,7 @@
 
 *[English](SECURITY.md) | 中文*
 
-**dedao-cli**（@fateforge/dedao-cli）的安全策略 —— Dedao (得到) CLI for AI Agents - read-only access to owned courses, articles, ebooks, audiobooks, notes, topics, and daily summaries。
+**dedao-cli**（@fateforge/dedao-cli）的安全策略 —— 为 AI Agent 提供只读得到访问和带确认闸门的 GetNote 笔记管理。
 
 ## 支持的版本
 
@@ -10,7 +10,7 @@
 
 | 版本 | 是否支持 |
 |------|----------|
-| 最新 `1.0.0` minor | 是 |
+| 最新 `1.1.0` minor | 是 |
 | 旧 minor | 否 |
 
 ## 报告漏洞
@@ -28,7 +28,7 @@
 
 ## 风险分级
 
-根据 [`.agent/SEC-SPEC_zh.md`](.agent/SEC-SPEC_zh.md)，`dedao-cli` 被定级为 **T1**：every upstream command is read-only and the tool never purchases, comments, or mutates account state, but it holds an account-level Dedao login session whose leak would expose the account, so credential handling follows the T1 baseline。
+根据 [`.agent/SEC-SPEC_zh.md`](.agent/SEC-SPEC_zh.md)，`dedao-cli` 被定级为 **T1**：它持有账号凭据，GetNote 命名空间能够修改笔记、标签、公开分享链接和知识库成员关系；得到上游命令仍全部只读。
 
 分级标准（见 SEC-SPEC §1）：
 
@@ -38,17 +38,17 @@
 | **T1 中** | 写外部状态，持有可写凭证 |
 | **T2 高** | 可造成不可逆 / 账户级损害（drop、转账、账户控制） |
 
-最坏爆炸半径受所配置凭证的权限与上游服务自身策略约束。本工具的所有上游命令都是只读的——从不购买、评论、关注或修改学习进度。具有删除性的本地 `logout` 命令在删除保存的凭据前，必须经过 CLI-SPEC §7 的 `--dry-run` → `--confirm <token>` 写闸门。自更新按 CLI-SPEC §14 豁免写闸门，其安全保证来自下面的签名校验。每类命令的爆炸半径在 `reference` 中声明。
+最坏爆炸半径受所配置凭据的权限与上游服务自身策略约束。得到命令只读。每个 GetNote 变更和两个凭据退出流程都必须经过 `--dry-run` → `--confirm <token>`；token 有有效期、只能使用一次，并与具体命令、完整参数、凭据上下文及可用目标版本绑定（CLI-SPEC §7）。自更新按 CLI-SPEC §14 豁免写闸门，其安全保证来自下面的签名校验。每类命令的爆炸半径在 `reference` 中声明。
 
 ## 凭证处理
 
-- **存储位置**：本工具持有的唯一凭证是一份通过 `dedao-cli login` 取得的得到登录会话（cookie）。它存放在 `~/.dedao-api/`，可用 `DEDAO_HOME` 或 `--state-dir` 覆盖。没有配置文件，也没有 `profiles.json`：配置面零秘密（SEC-SPEC §4）。
+- **存储位置**：通过 `dedao-cli login` 取得的得到 cookie 存放在 `~/.dedao-api/`，可用 `DEDAO_HOME` 或 `--state-dir` 覆盖。GetNote API key 与 client ID 位于独立的 `getnote/` 子目录。三者都使用加密 secret store；本 CLI 不会创建 GetNote 旧版的明文 `~/.getnote/config.json`。
 - **静态加密**：秘密以 **AES-256-GCM** 封存，任何情况下不落明文。32 字节数据密钥优先取自**操作系统钥匙串**（Windows 凭据管理器 / macOS Keychain / Linux Secret Service）；在没有钥匙串的环境——容器、无头服务器、CI——则由机器绑定因子经 PBKDF2-SHA256（20 万轮）配随机盐派生。
 - **为什么钥匙串里放的是密钥而不是会话本身**：Windows 凭据管理器单条 blob 上限 2560 字节，而 cookie jar 比这大，直接存会话会在最可能有钥匙串的平台上失败。只放密钥既绕开上限，又让两种后端共用同一条加密路径。
-- **降级可见，不静默**：`context.data.credentials.storage` 与 `doctor` 的 `credentials` 检查会报告 `keyring` 或 `encrypted-file`。它的诚实边界是：机器绑定因子对已经以你身份运行的代码是可枚举的，所以它防的是状态目录被拷到另一台机器，不是本机恶意代码。`DEDAO_SECRET_BACKEND=file` 可强制走回退后端（测试套件用它，确保 `go test` 绝不碰真实凭据库）。
+- **降级可见，不静默**：`context.data.credentials.storage` 与 `doctor` 的 `credentials` 检查会报告 `keyring` 或 `encrypted-file`；环境变量参与 GetNote 配置时，`context.data.credentials.getnote.storage` 还会报告 `environment` 或 `mixed`。`doctor` 只有在完成一次有界、只读的请求后才会把已配置的 GetNote 凭据标记为有效。回退后端的诚实边界是：机器绑定因子对已经以你身份运行的代码是可枚举的，所以它防的是状态目录被拷到另一台机器，不是本机恶意代码。`DEDAO_SECRET_BACKEND=file` 可强制走回退后端（测试套件用它，确保 `go test` 绝不碰真实凭据库）。
 - **历史明文会被迁移，而不是容忍**：旧版本写下的明文会话在首次读取时被封存，原明文文件随即删除。在此次升级之前离开过本机的任何副本，都应视为已泄露。
 - **文件权限**：文件以 `0600` 写入、目录 `0700`。这只是 POSIX 层面的陈述：Windows 上这些位不是 ACL，那里的保护来自用户目录 ACL 加上上述加密。
-- **无交互式密钥输入**：本工具从不索要密码，没有可输入的东西。
+- **凭据输入**：优先使用 `getnote auth login --api-key-stdin` 或 `GETNOTE_API_KEY`。兼容用的 `--api-key` flag 在部分系统上可能被其他本地进程从进程列表看到。
 - **脱敏**：token、`Authorization` 头、密码及其他敏感 flag 值在 stdout、stderr 和审计日志中均被脱敏（CLI-SPEC §10）。新增携带凭证的 flag 时，要把它登记进敏感 flag 列表。
 
 ## 不可信内容

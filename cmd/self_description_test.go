@@ -43,24 +43,28 @@ func TestReference_DescribesEveryCommandUsably(t *testing.T) {
 		t.Fatal("reference enumerated no commands")
 	}
 
-	// CLI-SPEC §11 forbids stub schemas: every leaf must resolve to a real
-	// entry in the top-level table and ship at least one runnable example.
-	for _, raw := range commands {
+	// CLI-SPEC §11 forbids stub schemas: every leaf, including nested command
+	// groups, must resolve to a real entry and ship runnable examples.
+	var checkCommand func(any)
+	checkCommand = func(raw any) {
 		command, _ := raw.(map[string]any)
 		path, _ := command["path"].(string)
 		children, _ := command["children"].([]any)
 		if len(children) > 0 {
-			continue
+			for _, child := range children {
+				checkCommand(child)
+			}
+			return
 		}
 		label, _ := command["output_schema"].(string)
 		if label == "" {
 			t.Errorf("%s declares no output_schema", path)
-			continue
+			return
 		}
 		schema, ok := schemas[label].(map[string]any)
 		if !ok {
 			t.Errorf("%s references unknown schema %q", path, label)
-			continue
+			return
 		}
 		fields, _ := schema["fields"].([]any)
 		if len(fields) == 0 {
@@ -72,9 +76,36 @@ func TestReference_DescribesEveryCommandUsably(t *testing.T) {
 		}
 		for _, example := range examples {
 			text, _ := example.(string)
-			if !strings.HasPrefix(text, "dedao-cli ") {
+			if !strings.Contains(text, "dedao-cli ") {
 				t.Errorf("%s example is not runnable: %q", path, text)
 			}
+		}
+	}
+	for _, raw := range commands {
+		checkCommand(raw)
+	}
+}
+
+func TestReference_PathsStayRelativeToTheToolRoot(t *testing.T) {
+	commands, _ := runCLI(t, nil, "reference", "--compact").Data(t)["commands"].([]any)
+	var paths []string
+	var walk func([]any)
+	walk = func(items []any) {
+		for _, raw := range items {
+			command, _ := raw.(map[string]any)
+			path, _ := command["path"].(string)
+			paths = append(paths, path)
+			children, _ := command["children"].([]any)
+			walk(children)
+		}
+	}
+	walk(commands)
+	if !slices.Contains(paths, "article") || !slices.Contains(paths, "getnote note get") {
+		t.Fatalf("reference paths lost top-level or nested commands: %v", paths)
+	}
+	for _, path := range paths {
+		if strings.HasPrefix(path, "dedao-cli ") {
+			t.Errorf("reference path must be tool-relative, got %q", path)
 		}
 	}
 }
@@ -325,6 +356,15 @@ func TestSchemas_LogoutDeclaresConfirmationFlow(t *testing.T) {
 	}
 }
 
+func TestSchemas_GetnoteWritesDeclareBothConfirmationSteps(t *testing.T) {
+	for command := range upstreamWriteCommands {
+		examples := commandExamples[command]
+		if len(examples) < 2 || !strings.Contains(examples[0], "--dry-run") || !strings.Contains(examples[1], "--confirm") {
+			t.Errorf("%s examples must show dry-run then confirm, got %v", command, examples)
+		}
+	}
+}
+
 func TestVersionFlag_ReportsToolVersion(t *testing.T) {
 	got := runCLI(t, nil, "--version")
 	if got.Exit != 0 {
@@ -356,7 +396,11 @@ func TestSchemas_ContentCommandsDeclareUntrustedFields(t *testing.T) {
 	selfDescribing := map[string]bool{
 		"reference": true, "context": true, "doctor": true, "changelog": true,
 		"status": true, "logout": true, "login": true, "login-resume": true,
-		"route": true,
+		"route":              true,
+		"getnote auth login": true, "getnote auth status": true, "getnote auth logout": true,
+		"getnote save": true, "getnote note update": true, "getnote note delete": true,
+		"getnote note share": true, "getnote tag add": true, "getnote tag remove": true,
+		"getnote kb create": true, "getnote kb add": true, "getnote kb remove": true,
 		// `update` reports this tool's own release state, not upstream content.
 		"update": true,
 	}

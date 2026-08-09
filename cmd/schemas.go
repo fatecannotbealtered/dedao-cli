@@ -1,5 +1,11 @@
 package cmd
 
+import (
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
 // Output schemas and runnable examples for every leaf command.
 //
 // CLI-SPEC §11 forbids stub schemas: each entry names the fields the command
@@ -274,6 +280,52 @@ var outputSchemas = map[string]outputSchema{
 		Shape:  "object",
 		Fields: []string{"current_version", "since", "entries"},
 	},
+	"getnote_auth_result": {
+		Shape: "object",
+		Fields: []string{"configured", "stored", "stored_credentials_removed", "environment_credentials_active",
+			"api_key_configured", "client_id_configured", "api_key_source", "client_id_source", "state_dir",
+			"preview", "confirm_token", "expires_at"},
+	},
+	"getnote_mutation": {
+		Shape:           "object",
+		Fields:          []string{"preview", "confirm_token", "expires_at", "result"},
+		UntrustedFields: []string{"result"},
+	},
+	"getnote_task": {
+		Shape:           "object",
+		Fields:          []string{"task_id", "status", "note_id", "msg", "error_msg", "create_time", "update_time"},
+		UntrustedFields: []string{"msg", "error_msg"},
+	},
+	"getnote_notes": {
+		Shape:           "object",
+		Fields:          []string{"items", "count", "next_cursor", "has_more", "total", "truncated"},
+		UntrustedFields: []string{"items"},
+	},
+	"getnote_note": {
+		Shape:           "object",
+		Fields:          []string{"note"},
+		UntrustedFields: []string{"note"},
+	},
+	"getnote_tags": {
+		Shape:           "object",
+		Fields:          []string{"note_id", "tags"},
+		UntrustedFields: []string{"tags"},
+	},
+	"getnote_search": {
+		Shape:           "object",
+		Fields:          []string{"items", "count", "has_more", "truncated"},
+		UntrustedFields: []string{"items"},
+	},
+	"getnote_kbs": {
+		Shape:           "object",
+		Fields:          []string{"items", "count", "has_more", "total", "page", "next_page", "truncated"},
+		UntrustedFields: []string{"items"},
+	},
+	"getnote_kb_notes": {
+		Shape:           "object",
+		Fields:          []string{"items", "count", "has_more", "total", "page", "next_page", "truncated"},
+		UntrustedFields: []string{"items"},
+	},
 }
 
 var commandSchemas = map[string]string{
@@ -324,12 +376,54 @@ var commandSchemas = map[string]string{
 	"doctor":               "doctor_report",
 	"changelog":            "changelog_document",
 	"update":               "update_result",
+	"getnote auth login":   "getnote_auth_result",
+	"getnote auth status":  "getnote_auth_result",
+	"getnote auth logout":  "getnote_auth_result",
+	"getnote save":         "getnote_mutation",
+	"getnote task":         "getnote_task",
+	"getnote notes":        "getnote_notes",
+	"getnote note get":     "getnote_note",
+	"getnote note update":  "getnote_mutation",
+	"getnote note delete":  "getnote_mutation",
+	"getnote note share":   "getnote_mutation",
+	"getnote search":       "getnote_search",
+	"getnote tag add":      "getnote_mutation",
+	"getnote tag remove":   "getnote_mutation",
+	"getnote tag list":     "getnote_tags",
+	"getnote kbs":          "getnote_kbs",
+	"getnote kb notes":     "getnote_kb_notes",
+	"getnote kb create":    "getnote_mutation",
+	"getnote kb add":       "getnote_mutation",
+	"getnote kb remove":    "getnote_mutation",
 }
 
 // untrustedFieldsFor resolves the untrusted field list a command's declared
 // schema promises, so the runtime marker and `reference` are the same statement.
 func untrustedFieldsFor(command string) []string {
 	return outputSchemas[commandSchemas[command]].UntrustedFields
+}
+
+func commandSchemaKey(cmdPath string) string {
+	path := strings.TrimPrefix(strings.TrimSpace(cmdPath), "dedao-cli ")
+	return commandSchemas[path]
+}
+
+func untrustedFieldsForCommand(cmd *cobra.Command) []string {
+	if cmd == nil {
+		return nil
+	}
+	return outputSchemas[commandSchemaKey(cmd.CommandPath())].UntrustedFields
+}
+
+func commandExamplesFor(cmd *cobra.Command) []string {
+	if cmd == nil {
+		return nil
+	}
+	path := strings.TrimPrefix(cmd.CommandPath(), "dedao-cli ")
+	if examples, ok := commandExamples[path]; ok {
+		return examples
+	}
+	return commandExamples[cmd.Name()]
 }
 
 var commandExamples = map[string][]string{
@@ -380,4 +474,23 @@ var commandExamples = map[string][]string{
 	"doctor":               {"dedao-cli doctor --compact"},
 	"update":               {"dedao-cli update --check --compact", "dedao-cli update --compact"},
 	"changelog":            {"dedao-cli changelog --since 1.0.0 --compact"},
+	"getnote auth login":   {"Get-Content api-key.txt | dedao-cli getnote auth login --api-key-stdin --client-id <client-id> --compact"},
+	"getnote auth status":  {"dedao-cli getnote auth status --compact"},
+	"getnote auth logout":  {"dedao-cli getnote auth logout --dry-run --compact", "dedao-cli getnote auth logout --confirm <confirm-token> --compact"},
+	"getnote save":         {"dedao-cli getnote save --content \"读书笔记\" --dry-run --compact", "dedao-cli getnote save --content \"读书笔记\" --confirm <confirm-token> --compact"},
+	"getnote task":         {"dedao-cli getnote task <task-id> --compact"},
+	"getnote notes":        {"dedao-cli getnote notes --limit 20 --compact"},
+	"getnote note get":     {"dedao-cli getnote note get <note-id> --compact"},
+	"getnote note update":  {"dedao-cli getnote note update <note-id> --title \"新标题\" --dry-run --compact", "dedao-cli getnote note update <note-id> --title \"新标题\" --confirm <confirm-token> --compact"},
+	"getnote note delete":  {"dedao-cli getnote note delete <note-id> --dry-run --compact", "dedao-cli getnote note delete <note-id> --confirm <confirm-token> --compact"},
+	"getnote note share":   {"dedao-cli getnote note share <note-id> --dry-run --compact", "dedao-cli getnote note share <note-id> --confirm <confirm-token> --compact"},
+	"getnote search":       {"dedao-cli getnote search \"认知\" --top-k 10 --compact"},
+	"getnote tag add":      {"dedao-cli getnote tag add <note-id> --tag 阅读 --dry-run --compact", "dedao-cli getnote tag add <note-id> --tag 阅读 --confirm <confirm-token> --compact"},
+	"getnote tag remove":   {"dedao-cli getnote tag remove <note-id> <tag-id> --dry-run --compact", "dedao-cli getnote tag remove <note-id> <tag-id> --confirm <confirm-token> --compact"},
+	"getnote tag list":     {"dedao-cli getnote tag list <note-id> --compact"},
+	"getnote kbs":          {"dedao-cli getnote kbs --page 1 --compact"},
+	"getnote kb notes":     {"dedao-cli getnote kb notes <topic-id> --page 1 --compact"},
+	"getnote kb create":    {"dedao-cli getnote kb create --name \"阅读\" --dry-run --compact", "dedao-cli getnote kb create --name \"阅读\" --confirm <confirm-token> --compact"},
+	"getnote kb add":       {"dedao-cli getnote kb add --topic-id <topic-id> --note-id <note-id> --dry-run --compact", "dedao-cli getnote kb add --topic-id <topic-id> --note-id <note-id> --confirm <confirm-token> --compact"},
+	"getnote kb remove":    {"dedao-cli getnote kb remove --topic-id <topic-id> --note-id <note-id> --dry-run --compact", "dedao-cli getnote kb remove --topic-id <topic-id> --note-id <note-id> --confirm <confirm-token> --compact"},
 }

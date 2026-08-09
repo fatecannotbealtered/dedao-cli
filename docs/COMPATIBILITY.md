@@ -1,12 +1,14 @@
 # Compatibility
 
-`dedao-cli` talks to Dedao's web app endpoints. Dedao publishes no API contract
-and no versioning, so "the verified backend version" is a **date**: the day each
-endpoint was last observed answering in the shape this tool parses.
+`dedao-cli` talks to Dedao's web app endpoints and GetNote's OpenAPI. Dedao
+publishes no API contract or versioning, so its "verified backend version" is a
+**date**: the day each endpoint was last observed answering in the shape this
+tool parses. GetNote publishes official clients and documentation, but this
+release still lacks a live credentialed smoke run.
 
 ## Verified surface
 
-Every declared command was exercised against the live upstream on **2026-08-07**
+Every declared Dedao command was exercised against the live upstream on **2026-08-07**
 with a signed-in account, and twelve `output_schema` entries in `reference` were
 corrected to the payload actually measured that day.
 
@@ -20,6 +22,24 @@ corrected to the payload actually measured that day.
 | Audiobooks | `/pc/odob/*`, `/pc/sunflower/*` | 2026-08-07 | `audiobook*` |
 | Search | `/api/search/*` | 2026-08-07 | `search`, `search-type`, `search-suggest`, `search-hot` |
 | Discovery | `/pc/sunflower/*`, `/pc/label/*`, `/pc/sphere/*`, `/pc/ddlive/*` | 2026-08-07 | `discover`, `labels`, `label-content`, `free`, `live`, `channel*` |
+
+## GetNote OpenAPI surface
+
+The `getnote` namespace follows the official
+[`iswalle/getnote-cli` main commit `f55a660`](https://github.com/iswalle/getnote-cli/commit/f55a6604d554c3ee5372086c5da009db78f492e5),
+observed on **2026-08-10**, for endpoints, request bodies, `Bearer`
+authorization, and the update request's `id` field. Mock-upstream contract tests
+cover reads, writes, pagination, auth, errors, timeouts, confirmation conflicts,
+and 64-bit IDs.
+
+There is a known conflict between official sources: the current
+[ClawHub GetNote Skill](https://clawhub.ai/iswalle/skills/getnote) and
+[GetNote API documentation](https://doc.biji.com/docs/WOxgwObNNiyMHWk1dl0cJqSxnEd)
+show a bare API key in `Authorization`, while the official CLI uses `Bearer`.
+This integration intentionally follows the CLI because that is the client being
+merged. No real GetNote credential was available for a live smoke, so this
+surface remains beta and the discrepancy must be re-verified before declaring
+it stable.
 
 Two shapes worth recording, because they cost time to find:
 
