@@ -13,7 +13,8 @@ import (
 // in the machine contract rather than hanging or panicking.
 func TestUpdateCheck_ReportsInstallMethodAndContract(t *testing.T) {
 	got := runCLI(t, nil, "update", "--check", "--timeout", "2s", "--compact")
-	// Offline, the release feed is unreachable and that is an honest E_NETWORK.
+	// The release feed may be unreachable, time out, or rate-limit an
+	// unauthenticated CI runner; each outcome must honor the machine contract.
 	if got.Exit == 0 {
 		data := got.Data(t)
 		for _, field := range []string{
@@ -26,16 +27,16 @@ func TestUpdateCheck_ReportsInstallMethodAndContract(t *testing.T) {
 		return
 	}
 	switch code := got.ErrorCode(t); code {
-	case "E_NETWORK":
+	case "E_NETWORK", "E_RATE_LIMITED":
 		if got.Exit != 7 {
-			t.Errorf("exit = %d, want 7 for E_NETWORK", got.Exit)
+			t.Errorf("exit = %d, want 7 for %s", got.Exit, code)
 		}
 	case "E_TIMEOUT":
 		if got.Exit != 8 {
 			t.Errorf("exit = %d, want 8 for E_TIMEOUT", got.Exit)
 		}
 	default:
-		t.Errorf("code = %s, want E_NETWORK or E_TIMEOUT", code)
+		t.Errorf("code = %s, want E_NETWORK, E_RATE_LIMITED, or E_TIMEOUT", code)
 	}
 }
 
