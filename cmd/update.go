@@ -1,9 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
 	dedaocli "github.com/fatecannotbealtered/dedao-cli"
@@ -55,14 +58,24 @@ func (a *application) updateCommand() *cobra.Command {
 					notice, err = nil, nil
 				}
 				if err != nil {
-					return output.WrapError("E_NETWORK",
-						"could not reach the release feed to check for updates", err, nil)
+					return updateFailure(&update.Result{
+						Stage:           "discover",
+						CurrentVersion:  version,
+						SkillSyncStatus: "not_attempted",
+					}, err)
+				}
+				method := update.DetectInstallMethod(executablePath())
+				latest := noticeLatest(notice, version)
+				command := updateConfig.Tool + " update"
+				if method == update.MethodNPM && notice != nil {
+					command = fmt.Sprintf("npm install -g %s@%s", updateConfig.NPMPackage, latest)
 				}
 				return a.success(map[string]any{
 					"current_version":      version,
-					"install_method":       string(update.DetectInstallMethod(executablePath())),
+					"install_method":       string(method),
 					"update_available":     notice != nil,
-					"latest_version":       noticeLatest(notice, version),
+					"latest_version":       latest,
+					"command":              command,
 					"skill_sync_supported": true,
 					"signature_available":  true,
 					"notice":               noticeOrNil(notice),
@@ -86,16 +99,43 @@ func (a *application) updateCommand() *cobra.Command {
 // state visible so an agent always knows which version it is on.
 func updateFailure(result *update.Result, err error) error {
 	details := map[string]any{}
+	currentVersion := version
 	if result != nil {
+		if result.CurrentVersion != "" {
+			currentVersion = result.CurrentVersion
+		}
 		details["stage"] = result.Stage
 		details["current_version"] = result.CurrentVersion
 		details["binary_replaced"] = result.BinaryReplaced
 		details["skill_sync_status"] = result.SkillSyncStatus
+		details["previous_version"] = result.PreviousVersion
 		if result.SkillSyncCommand != "" {
 			details["skill_sync_command"] = result.SkillSyncCommand
 		}
+		if result.Command != "" {
+			details["command"] = result.Command
+		}
 	}
+	var commandErr *update.CommandError
+	_ = errors.As(err, &commandErr)
 	switch {
+	case errors.Is(err, context.Canceled):
+		if result != nil && result.BinaryReplaced {
+			return output.WrapError("E_INTERRUPTED",
+				fmt.Sprintf("update interrupted after binary replacement; binary is at %s; run `%s`, then `changelog --since %s`",
+					result.CurrentVersion, result.SkillSyncCommand, result.PreviousVersion), err, details)
+		}
+		return output.WrapError("E_INTERRUPTED",
+			fmt.Sprintf("update cancelled; no change was applied, still on %s; re-run update when ready",
+				currentVersion), err, details)
+	case errors.Is(err, context.DeadlineExceeded):
+		if result != nil && result.BinaryReplaced {
+			return output.WrapError("E_TIMEOUT",
+				fmt.Sprintf("update timed out after binary replacement; binary is at %s; run %s, then changelog --since %s",
+					result.CurrentVersion, result.SkillSyncCommand, result.PreviousVersion), err, details)
+		}
+		return output.WrapError("E_TIMEOUT",
+			"update timed out; re-run update, which is idempotent", err, details)
 	case errors.Is(err, update.ErrNoRelease):
 		// Nothing to install, and nothing a retry would change.
 		return output.WrapError("E_NOT_FOUND",
@@ -104,8 +144,30 @@ func updateFailure(result *update.Result, err error) error {
 		// Non-retryable on purpose: a release that fails to verify will fail
 		// again, and retrying a forged artifact is the wrong instinct.
 		return output.WrapError("E_INTEGRITY", err.Error(), err, details)
+	case errors.Is(err, update.ErrInstallMethod):
+		return output.WrapError("E_CONFIG", err.Error(), err, details)
+	case commandErr != nil && errors.Is(commandErr, exec.ErrNotFound):
+		return output.WrapError("E_CONFIG", err.Error(), err, details)
+	case commandErr != nil && errors.Is(commandErr, os.ErrPermission):
+		return output.WrapError("E_FORBIDDEN", err.Error(), err, details)
+	case errors.Is(err, update.ErrRateLimited):
+		return output.WrapError("E_RATE_LIMITED",
+			"release service rate-limited the update; back off, then re-run update", err, details)
+	case result != nil && (result.Stage == "discover" || result.Stage == "download"):
+		return output.WrapError("E_NETWORK",
+			"transient update download failure; re-run update, which is idempotent", err, details)
+	case result != nil && result.Stage == "replace":
+		if errors.Is(err, os.ErrPermission) {
+			return output.WrapError("E_FORBIDDEN",
+				"cannot replace the executable; fix its permissions, then re-run update", err, details)
+		}
+		return output.WrapError("E_IO",
+			"could not replace the executable; fix the local filesystem issue, then re-run update", err, details)
+	case result != nil && result.Stage == "skill_sync":
+		return output.WrapError("E_NETWORK",
+			"binary updated but Skill sync failed; run the reported skill_sync_command", err, details)
 	default:
-		return output.WrapError("E_SERVER", err.Error(), err, details)
+		return output.WrapError("E_UNKNOWN", err.Error(), err, details)
 	}
 }
 

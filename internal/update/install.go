@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -58,12 +59,18 @@ func downloadAsset(ctx context.Context, client *http.Client, release *Release, n
 			return nil, err
 		}
 		defer func() { _ = response.Body.Close() }()
+		if response.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("%w: %s", ErrAssetMissing, name)
+		}
+		if rateLimitedResponse(response) {
+			return nil, ErrRateLimited
+		}
 		if response.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("downloading %s answered HTTP %d", name, response.StatusCode)
 		}
 		return io.ReadAll(io.LimitReader(response.Body, maxAssetBytes))
 	}
-	return nil, fmt.Errorf("the release has no asset named %s", name)
+	return nil, fmt.Errorf("%w: %s", ErrAssetMissing, name)
 }
 
 // extractBinary pulls the tool's executable out of a verified archive.
@@ -170,28 +177,38 @@ func replaceExecutable(target string, contents []byte) error {
 func (c Config) installBinary(ctx context.Context, client *http.Client, release *Release, result *Result) error {
 	archiveName, checksumsName, bundleName := assetNames(c.Tool, release.Version)
 
-	result.Stage = "download_checksums"
+	result.Stage = "download"
 	checksums, err := downloadAsset(ctx, client, release, checksumsName)
 	if err != nil {
+		if errors.Is(err, ErrAssetMissing) {
+			return fmt.Errorf("%w: checksums.txt is required for verification", ErrIntegrity)
+		}
 		return err
 	}
 	signature, err := downloadAsset(ctx, client, release, bundleName)
 	if err != nil {
-		// A release with no signature bundle is not installable. There is no
-		// "unsigned but probably fine" path (SEC-SPEC §5).
-		return fmt.Errorf("%w: %v", ErrIntegrity, err)
+		if errors.Is(err, ErrAssetMissing) {
+			// A release with no signature bundle is not installable. There is no
+			// "unsigned but probably fine" path (SEC-SPEC §5).
+			return fmt.Errorf("%w: signature bundle is required for verification", ErrIntegrity)
+		}
+		return err
 	}
 
 	result.Stage = "verify_signature"
-	if err := VerifyChecksums(c.Repo, checksums, signature); err != nil {
+	targetTag := "v" + strings.TrimPrefix(release.Version, "v")
+	if err := VerifyChecksums(ctx, c.Repo, targetTag, checksums, signature); err != nil {
 		return err
 	}
 	result.SignatureStatus = "verified"
 	result.SignatureVerify = true
 
-	result.Stage = "download_archive"
+	result.Stage = "download"
 	archive, err := downloadAsset(ctx, client, release, archiveName)
 	if err != nil {
+		if errors.Is(err, ErrAssetMissing) {
+			return fmt.Errorf("%w: archive is absent from the signed release", ErrIntegrity)
+		}
 		return err
 	}
 
@@ -201,7 +218,7 @@ func (c Config) installBinary(ctx context.Context, client *http.Client, release 
 	}
 	result.ChecksumStatus = "verified"
 
-	result.Stage = "extract"
+	result.Stage = "replace"
 	binary, err := extractBinary(archive, c.Tool)
 	if err != nil {
 		return err
@@ -211,6 +228,9 @@ func (c Config) installBinary(ctx context.Context, client *http.Client, release 
 	target := currentExecutable()
 	if target == "" {
 		return fmt.Errorf("could not locate the running executable to replace")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if err := replaceExecutable(target, binary); err != nil {
 		return err

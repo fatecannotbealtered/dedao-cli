@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fatecannotbealtered/dedao-cli/internal/dedao"
 	"github.com/fatecannotbealtered/dedao-cli/internal/output"
@@ -23,7 +24,7 @@ func (a *application) run(cmd *cobra.Command, call func(context.Context, *dedao.
 	if err != nil {
 		return err
 	}
-	return a.success(data)
+	return a.success(normalizePagination(data, a.limit))
 }
 
 func libraryCategory(kind string) (string, error) {
@@ -62,21 +63,51 @@ func (a *application) statusCommand() *cobra.Command {
 }
 
 func (a *application) logoutCommand() *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	var confirm string
+	cmd := &cobra.Command{
 		Use:   "logout",
 		Short: "Discard the stored Dedao session",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
+			if dryRun && confirm != "" {
+				return output.NewError("E_USAGE", "--dry-run and --confirm cannot be used together", nil)
+			}
 			client, err := a.client()
 			if err != nil {
+				return err
+			}
+			configured := client.Authenticated()
+			payload := logoutPayload(client.StateDirectory(), configured, client.CredentialFingerprint())
+			if dryRun {
+				token, expiresAt, err := newLogoutConfirmToken(payload)
+				if err != nil {
+					return output.WrapError("E_IO", "could not create a confirmation token", err, nil)
+				}
+				return a.success(map[string]any{
+					"preview": map[string]any{"changes": []map[string]any{{
+						"action": "delete", "resource": "local_credentials", "id": "current",
+						"before": map[string]any{"configured": configured}, "after": nil,
+					}}},
+					"confirm_token": token,
+					"expires_at":    expiresAt.Format(time.RFC3339),
+				})
+			}
+			if err := validateLogoutConfirmToken(confirm, payload); err != nil {
+				return err
+			}
+			if err := consumeLogoutConfirmToken(confirm, payload.StateDir); err != nil {
 				return err
 			}
 			if err := client.Logout(); err != nil {
 				return output.WrapError("E_IO", "could not remove the stored session", err, nil)
 			}
-			return a.success(map[string]any{"logged_out": true})
+			return a.success(map[string]any{"logged_out": true, "previously_configured": configured})
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview credential deletion and issue a confirmation token")
+	cmd.Flags().StringVar(&confirm, "confirm", "", "Execute credential deletion with a token returned by --dry-run")
+	return cmd
 }
 
 // queryCommands returns every read command. They are assembled in one place so

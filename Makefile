@@ -1,18 +1,13 @@
 BINARY_NAME := dedao-cli
-MODULE      := github.com/fatecannotbealtered/dedao-cli
 CMD_PATH    := ./cmd/dedao-cli
 BIN_DIR     := bin
-
-# Version from git tag, fallback to dev
-VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS     := -s -w -X $(MODULE)/cmd.version=$(VERSION)
 
 .PHONY: build test vet lint fmt check-fmt check clean install snapshot help
 
 ## build: compile the binary into bin/
 build:
 	@mkdir -p $(BIN_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
+	go build -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
 
 ## test: run all unit tests with race detection
 test: vet
@@ -44,7 +39,7 @@ clean:
 
 ## install: build and install to GOPATH/bin
 install:
-	go install -ldflags "$(LDFLAGS)" $(CMD_PATH)
+	go install $(CMD_PATH)
 
 ## snapshot: build a local goreleaser snapshot (no publish)
 snapshot:

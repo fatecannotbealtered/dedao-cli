@@ -40,6 +40,32 @@ function writeTextPreserving(file, oldText, newText) {
   return 1;
 }
 
+// Changelog templates live in HTML comments. They are documentation, not
+// releases, so every release-heading check must operate on visible markdown.
+function stripHTMLComments(text) {
+  return text.replace(/<!--[\s\S]*?-->/g, "");
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function newestReleased(text) {
+  const visible = stripHTMLComments(text);
+  const re = /^## \[([^\]]+)\]/gm;
+  let match;
+  while ((match = re.exec(visible))) {
+    if (match[1].toLowerCase() !== "unreleased") return match[1];
+  }
+  return null;
+}
+
+function hasReleasedHeading(text, version) {
+  const escaped = escapeRegExp(version);
+  return new RegExp(`^## \\[${escaped}\\](?:[ \\t]+-[^\\r\\n]+)?[ \\t]*$`, "m")
+    .test(stripHTMLComments(text));
+}
+
 // ---- source of truth ----
 // Read from disk (not require()) so repeated calls in one process never serve a
 // stale module-cached version after package.json has changed on disk.
@@ -189,14 +215,6 @@ function pythonVersion(root) {
 function changelog(root) {
   const file = path.join(root, "CHANGELOG.md");
   if (!fs.existsSync(file)) return null;
-  function newestReleased(text) {
-    const re = /^## \[([^\]]+)\]/gm;
-    let m;
-    while ((m = re.exec(text))) {
-      if (m[1].toLowerCase() !== "unreleased") return m[1];
-    }
-    return null;
-  }
   return {
     label: "CHANGELOG.md",
     isChangelog: true,
@@ -205,13 +223,12 @@ function changelog(root) {
     },
     write(version) {
       const text = readRaw(file);
-      const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (new RegExp(`^## \\[${escaped}\\]`, "m").test(text)) {
+      if (hasReleasedHeading(text, version)) {
         return 0; // already has a section for this version
       }
       const eol = text.includes("\r\n") ? "\r\n" : "\n";
       const date = new Date().toISOString().slice(0, 10);
-      if (/^## \[Unreleased\]/m.test(text)) {
+      if (/^## \[Unreleased\]/m.test(stripHTMLComments(text))) {
         // Roll [Unreleased] into a dated [version] section, leaving a fresh
         // empty [Unreleased] above; entries previously under [Unreleased] thus
         // become the [version] body.
@@ -246,4 +263,10 @@ function derivedLocations(root) {
   return list;
 }
 
-module.exports = { sourceVersion, derivedLocations };
+module.exports = {
+  sourceVersion,
+  derivedLocations,
+  stripHTMLComments,
+  newestReleased,
+  hasReleasedHeading,
+};

@@ -24,7 +24,7 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"logout_result": {
 		Shape:  "object",
-		Fields: []string{"logged_out"},
+		Fields: []string{"preview", "confirm_token", "expires_at", "logged_out", "previously_configured"},
 	},
 	"login_result": {
 		Shape:           "object",
@@ -33,7 +33,7 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"library_page": {
 		Shape: "object",
-		Fields: []string{"list", "is_more", "total", "bottom_tips", "has_single_book",
+		Fields: []string{"list", "count", "has_more", "is_more", "total", "bottom_tips", "has_single_book",
 			"sphere_guide"},
 		UntrustedFields: []string{"list", "bottom_tips", "sphere_guide"},
 	},
@@ -48,12 +48,13 @@ var outputSchemas = map[string]outputSchema{
 		Shape: "object",
 		Fields: []string{"id", "name", "count", "uid", "group_ptype", "delete_flag",
 			"create_time", "update_time", "mustard_id", "mustard_tips",
-			"mustard_create_time", "new_mustard_tips"},
+			"mustard_create_time", "new_mustard_tips", "create_label", "update_label",
+			"mustard_create_label"},
 		UntrustedFields: []string{"name"},
 	},
 	"recent_list": {
 		Shape:           "object",
-		Fields:          []string{"list", "has_more", "current_time", "timestamp"},
+		Fields:          []string{"list", "count", "has_more", "current_time", "timestamp", "current_label", "timestamp_label"},
 		UntrustedFields: []string{"list"},
 	},
 	"progress_overview": {
@@ -63,26 +64,26 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"search_results": {
 		Shape: "object",
-		Fields: []string{"list", "total", "page", "size", "type", "is_more",
+		Fields: []string{"list", "count", "has_more", "total", "page", "size", "type", "is_more",
 			"request_id"},
 		UntrustedFields: []string{"list"},
 	},
 	// `search` hits a different backend whose payload is not the scoped-search
-	// shape: hits arrive grouped in moduleList, and `content` echoes the query.
+	// shape: hits arrive grouped in module_list, and `content` echoes the query.
 	"search_tophits": {
 		Shape: "object",
-		Fields: []string{"moduleList", "tabList", "typeIdCollection", "classification",
-			"content", "isMore", "requestId", "teacherInnerGoods"},
-		UntrustedFields: []string{"moduleList", "tabList", "teacherInnerGoods", "content"},
+		Fields: []string{"module_list", "count", "has_more", "tab_list", "type_id_collection", "classification",
+			"content", "is_more", "request_id", "teacher_inner_goods"},
+		UntrustedFields: []string{"module_list", "tab_list", "teacher_inner_goods", "content"},
 	},
 	"search_hot": {
 		Shape:           "object",
-		Fields:          []string{"hot_tab_list", "recommend_map"},
+		Fields:          []string{"hot_tab_list", "count", "has_more", "recommend_map"},
 		UntrustedFields: []string{"hot_tab_list", "recommend_map"},
 	},
 	"search_suggest": {
 		Shape:           "object",
-		Fields:          []string{"list"},
+		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
 	"course_detail": {
@@ -92,7 +93,7 @@ var outputSchemas = map[string]outputSchema{
 			"class_comment_info", "class_reviews", "class_reviews_count",
 			"achievement_detail", "lecturer_dedao_share", "live_info",
 			"live_inner_article_info", "is_show_grading", "show_free_tips",
-			"user_type", "time_now"},
+			"user_type", "time_now", "now_label"},
 		UntrustedFields: []string{"class_info", "chapter_list", "items", "new_items",
 			"flat_article_list", "class_comment_info", "class_reviews",
 			"lecturer_dedao_share"},
@@ -145,12 +146,12 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"article_list": {
 		Shape:           "object",
-		Fields:          []string{"article_list", "class_id", "pid", "ptype", "reverse"},
+		Fields:          []string{"article_list", "count", "has_more", "class_id", "pid", "ptype", "reverse"},
 		UntrustedFields: []string{"article_list"},
 	},
 	"comment_list": {
 		Shape:           "object",
-		Fields:          []string{"list", "total", "page"},
+		Fields:          []string{"list", "count", "has_more", "total", "page"},
 		UntrustedFields: []string{"list"},
 	},
 	"note_bundle": {
@@ -180,7 +181,7 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"audiobook_collection": {
 		Shape:           "object",
-		Fields:          []string{"list", "collection_info"},
+		Fields:          []string{"list", "count", "has_more", "collection_info"},
 		UntrustedFields: []string{"list", "collection_info"},
 	},
 	"audiobook_agency": {
@@ -197,7 +198,7 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"topic_list": {
 		Shape:           "object",
-		Fields:          []string{"list", "has_more"},
+		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
 	"topic_detail": {
@@ -212,44 +213,44 @@ var outputSchemas = map[string]outputSchema{
 	},
 	"channel_topic": {
 		Shape:           "object",
-		Fields:          []string{"topic_info", "article_list"},
+		Fields:          []string{"topic_info", "article_list", "count", "has_more"},
 		UntrustedFields: []string{"topic_info", "article_list"},
 	},
 	"channel_articles": {
 		Shape:           "object",
-		Fields:          []string{"article_list", "module", "now_time"},
+		Fields:          []string{"article_list", "count", "has_more", "module", "now_time", "now_label"},
 		UntrustedFields: []string{"article_list", "module"},
 	},
 	"label_list": {
 		Shape:           "object",
-		Fields:          []string{"list"},
+		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
 	"label_content": {
 		Shape:           "object",
-		Fields:          []string{"list", "is_more", "page"},
+		Fields:          []string{"list", "count", "has_more", "is_more", "page"},
 		UntrustedFields: []string{"list"},
 	},
 	"free_resources": {
 		Shape:           "object",
-		Fields:          []string{"list"},
+		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
 	"discovery_result": {
 		Shape:           "object",
-		Fields:          []string{"product_list", "total", "is_more", "request_id"},
+		Fields:          []string{"product_list", "count", "has_more", "total", "is_more", "request_id"},
 		UntrustedFields: []string{"product_list"},
 	},
 	"live_list": {
 		Shape:           "object",
-		Fields:          []string{"list"},
+		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
 	"reference_document": {
 		Shape: "object",
 		Fields: []string{
 			"tool", "version", "schema_version", "risk_tier", "minimum_skill_version",
-			"release_readiness", "commands", "schemas", "exit_codes", "global_options",
+			"release_readiness", "commands", "schemas", "exit_codes", "error_codes", "global_options",
 			"security", "output",
 		},
 	},
@@ -265,7 +266,7 @@ var outputSchemas = map[string]outputSchema{
 	"update_result": {
 		Shape: "object",
 		Fields: []string{"status", "stage", "previous_version", "current_version",
-			"target_version", "update_available", "install_method", "binary_replaced",
+			"target_version", "update_available", "install_method", "command", "binary_replaced",
 			"signature_status", "signature_verified", "checksum_status",
 			"skill_sync_status", "skill_sync_command", "release_url", "notice"},
 	},
@@ -335,7 +336,7 @@ var commandExamples = map[string][]string{
 	"status":               {"dedao-cli status --compact"},
 	"login":                {"dedao-cli login --compact"},
 	"login-resume":         {"dedao-cli login-resume --compact"},
-	"logout":               {"dedao-cli logout"},
+	"logout":               {"dedao-cli logout --dry-run --compact", "dedao-cli logout --confirm <confirm_token> --compact"},
 	"library":              {"dedao-cli library course --page 1 --page-size 20 --compact"},
 	"library-nav":          {"dedao-cli library-nav --compact"},
 	"library-groups":       {"dedao-cli library-groups course --compact"},
@@ -378,5 +379,5 @@ var commandExamples = map[string][]string{
 	"context":              {"dedao-cli context --compact"},
 	"doctor":               {"dedao-cli doctor --compact"},
 	"update":               {"dedao-cli update --check --compact", "dedao-cli update --compact"},
-	"changelog":            {"dedao-cli changelog --since 0.1.0 --compact"},
+	"changelog":            {"dedao-cli changelog --since 1.0.0 --compact"},
 }

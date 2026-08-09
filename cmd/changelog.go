@@ -13,6 +13,7 @@ var (
 	versionHeadingRE = regexp.MustCompile(`(?m)^## \[([^\]]+)\](?: - (\S+))?`)
 	categoryRE       = regexp.MustCompile(`(?m)^### (\w+)`)
 	bulletRE         = regexp.MustCompile(`(?m)^[-*] (.+)$`)
+	htmlCommentRE    = regexp.MustCompile(`(?s)<!--.*?-->`)
 )
 
 type changelogEntry struct {
@@ -25,6 +26,7 @@ type changelogEntry struct {
 // CLI-SPEC §11 specifies. Unreleased sections are skipped: an agent asking what
 // changed wants shipped versions.
 func parseChangelog(markdown string) []changelogEntry {
+	markdown = htmlCommentRE.ReplaceAllString(markdown, "")
 	headings := versionHeadingRE.FindAllStringSubmatchIndex(markdown, -1)
 	entries := []changelogEntry{}
 

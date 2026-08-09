@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -173,6 +174,67 @@ func TestQueryCommands_EmptyResultStillSucceeds(t *testing.T) {
 	}
 }
 
+func TestSearch_NormalizesUpstreamKeysIDsAndTimesAtCommandBoundary(t *testing.T) {
+	mock := newMockUpstream(t)
+	mock.OK("/api/pc/ebook2/v1/vip/info", map[string]any{"is_vip": false})
+	mock.OK("/api/search/pc/tophits", map[string]any{
+		"status": map[string]any{"code": 0},
+		"data": map[string]any{
+			"moduleList": []any{map[string]any{
+				"contentId":   42,
+				"publishTime": 1785988285,
+				"displayTime": "15:01",
+			}},
+			"isMore":            false,
+			"typeIdCollection":  []any{1, 2},
+			"requestId":         9,
+			"teacherInnerGoods": []any{},
+		},
+	})
+
+	got := runAuthed(t, mock, "search", "认知")
+	if got.Exit != 0 {
+		t.Fatalf("exit = %d: %s", got.Exit, got.Stdout)
+	}
+	data := got.Data(t)
+	if _, exists := data["moduleList"]; exists {
+		t.Fatalf("camelCase output survived command boundary: %#v", data)
+	}
+	items, _ := data["module_list"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("module_list = %#v", data["module_list"])
+	}
+	item := items[0].(map[string]any)
+	if item["content_id"] != "42" || item["publish_time"] != "2026-08-06T03:51:25Z" || item["display_label"] != "15:01" {
+		t.Errorf("normalized search item = %#v", item)
+	}
+	if data["request_id"] != "9" {
+		t.Errorf("request_id = %#v, want string 9", data["request_id"])
+	}
+	marked, _ := data["_untrusted"].([]any)
+	if len(marked) != 4 || marked[0] != "module_list" || marked[1] != "tab_list" ||
+		marked[2] != "teacher_inner_goods" || marked[3] != "content" {
+		t.Errorf("_untrusted = %#v, want canonical field names", marked)
+	}
+}
+
+func TestQueryCommands_ReportNormalizedKeyCollision(t *testing.T) {
+	mock := newMockUpstream(t)
+	mock.OK("/pc/sunflower/v1/resource/list", map[string]any{
+		"requestId": "first", "request_id": "second",
+	})
+	got := runAuthed(t, mock, "free")
+	if got.Exit != 1 || got.ErrorCode(t) != "E_UNKNOWN" {
+		t.Fatalf("exit/code = %d/%s, want 1/E_UNKNOWN", got.Exit, got.ErrorCode(t))
+	}
+	errorObject := got.Envelope(t)["error"].(map[string]any)
+	details := errorObject["details"].(map[string]any)
+	message, _ := details["normalization_error"].(string)
+	if !strings.Contains(message, `"requestId" and "request_id"`) {
+		t.Errorf("normalization_error = %q", message)
+	}
+}
+
 func TestQueryCommands_InvalidArguments(t *testing.T) {
 	cases := []struct {
 		name string
@@ -218,20 +280,98 @@ func TestQueryCommands_PaginationFlagsAreForwarded(t *testing.T) {
 	}
 }
 
-func TestLogout_ClearsSessionAndReportsIt(t *testing.T) {
-	dir := stateDir(t, true)
-	got := runCLI(t, nil, "logout", "--state-dir", dir, "--compact")
+func TestQueryCommands_LimitMapsToPageSizeAndNormalizesPagination(t *testing.T) {
+	mock := newMockUpstream(t)
+	mock.handlers["/api/hades/v2/product/list"] = func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if body["page_size"] != float64(1) {
+			t.Errorf("page_size = %v, want 1 from --limit", body["page_size"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"h": map[string]any{"c": 0, "e": ""},
+			"c": map[string]any{"list": []any{map[string]any{"id": 7}}, "is_more": false},
+		})
+	}
+
+	got := runAuthed(t, mock, "library", "course", "--limit", "1")
 	if got.Exit != 0 {
 		t.Fatalf("exit = %d: %s", got.Exit, got.Stdout)
 	}
 	data := got.Data(t)
-	if cleared, _ := data["logged_out"].(bool); !cleared {
-		t.Errorf("logged_out = %v, want true", data["logged_out"])
+	if data["count"] != float64(1) || data["has_more"] != false {
+		t.Errorf("pagination = count %v, has_more %v; want 1/false", data["count"], data["has_more"])
 	}
-	// A second logout is a no-op success, so an agent can retry safely.
-	again := runCLI(t, nil, "logout", "--state-dir", dir, "--compact")
-	if again.Exit != 0 {
-		t.Errorf("repeat logout should be idempotent, got exit %d", again.Exit)
+}
+
+func TestQueryCommands_LimitConflictsWithNativePageSize(t *testing.T) {
+	got := runAuthed(t, newMockUpstream(t), "library", "course", "--limit", "1", "--page-size", "2")
+	if got.Exit != 2 || got.ErrorCode(t) != "E_VALIDATION" {
+		t.Fatalf("exit/code = %d/%s, want 2/E_VALIDATION", got.Exit, got.ErrorCode(t))
+	}
+}
+
+func TestLogout_RequiresDryRunAndConfirm(t *testing.T) {
+	dir := stateDir(t, true)
+	mock := newMockUpstream(t)
+
+	bare := runCLI(t, mock, "logout", "--state-dir", dir, "--compact")
+	if bare.Exit != 5 || bare.ErrorCode(t) != "E_CONFIRMATION_REQUIRED" {
+		t.Fatalf("bare logout = exit %d, code %s; want exit 5/E_CONFIRMATION_REQUIRED",
+			bare.Exit, bare.ErrorCode(t))
+	}
+	fabricated := runCLI(t, mock, "logout", "--confirm", "ct_fabricated_0000", "--state-dir", dir, "--compact")
+	if fabricated.Exit != 6 || fabricated.ErrorCode(t) != "E_CONFLICT" {
+		t.Fatalf("fabricated confirm = exit %d, code %s; want exit 6/E_CONFLICT",
+			fabricated.Exit, fabricated.ErrorCode(t))
+	}
+
+	preview := runCLI(t, mock, "logout", "--dry-run", "--state-dir", dir, "--compact")
+	if preview.Exit != 0 {
+		t.Fatalf("dry-run exit = %d: %s", preview.Exit, preview.Stdout)
+	}
+	token, _ := preview.Data(t)["confirm_token"].(string)
+	if token == "" {
+		t.Fatal("dry-run returned no confirm_token")
+	}
+	changes, _ := preview.Data(t)["preview"].(map[string]any)["changes"].([]any)
+	first, _ := changes[0].(map[string]any)
+	before, _ := first["before"].(map[string]any)
+	if configured, _ := before["configured"].(bool); !configured {
+		t.Fatal("bare/fabricated/dry-run logout removed the configured session")
+	}
+
+	confirmed := runCLI(t, mock, "logout", "--confirm", token, "--state-dir", dir, "--compact")
+	if confirmed.Exit != 0 {
+		t.Fatalf("confirmed logout exit = %d: %s", confirmed.Exit, confirmed.Stdout)
+	}
+	if cleared, _ := confirmed.Data(t)["logged_out"].(bool); !cleared {
+		t.Error("confirmed logout did not report logged_out=true")
+	}
+	after := runCLI(t, mock, "logout", "--dry-run", "--state-dir", dir, "--compact")
+	afterChanges, _ := after.Data(t)["preview"].(map[string]any)["changes"].([]any)
+	afterFirst, _ := afterChanges[0].(map[string]any)
+	afterBefore, _ := afterFirst["before"].(map[string]any)
+	if configured, _ := afterBefore["configured"].(bool); configured {
+		t.Fatal("confirmed logout left the configured session behind")
+	}
+}
+
+func TestLogout_ConfirmTokenIsSingleUse(t *testing.T) {
+	dir := stateDir(t, false)
+	preview := runCLI(t, nil, "logout", "--dry-run", "--state-dir", dir, "--compact")
+	token, _ := preview.Data(t)["confirm_token"].(string)
+	first := runCLI(t, nil, "logout", "--confirm", token, "--state-dir", dir, "--compact")
+	if first.Exit != 0 {
+		t.Fatalf("first confirm exit = %d: %s", first.Exit, first.Stdout)
+	}
+	replay := runCLI(t, nil, "logout", "--confirm", token, "--state-dir", dir, "--compact")
+	if replay.Exit != 6 || replay.ErrorCode(t) != "E_CONFLICT" {
+		t.Fatalf("replayed confirm = exit %d/code %s, want 6/E_CONFLICT",
+			replay.Exit, replay.ErrorCode(t))
 	}
 }
 

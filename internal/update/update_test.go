@@ -167,6 +167,9 @@ func TestRun_DryRunDrivesNothing(t *testing.T) {
 	if result.SkillSyncCommand == "" {
 		t.Error("a dry run must still name the skill sync command")
 	}
+	if result.Command == "" {
+		t.Error("a dry run must name the update command")
+	}
 }
 
 // Skill sync failing after the binary moved is partial success, and the agent
@@ -184,10 +187,36 @@ func TestRun_SkillSyncFailureIsPartial(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed skill sync returned success")
 	}
+	var commandErr *CommandError
+	if !errors.As(err, &commandErr) || commandErr.Command == "" {
+		t.Fatalf("skill sync error did not preserve its command: %v", err)
+	}
 	if result.Status != "partial" || !result.BinaryReplaced {
 		t.Errorf("result = %+v, want partial with binary_replaced", result)
 	}
 	if result.SkillSyncStatus != "failed" || result.SkillSyncCommand == "" {
 		t.Errorf("the agent was not told how to finish the sync: %+v", result)
+	}
+}
+
+func TestRun_InterruptionAfterPackageUpdateReportsNewBinary(t *testing.T) {
+	config := testConfig(t, "1.0.0")
+	config.Method = MethodNPM
+	ctx, cancel := context.WithCancel(context.Background())
+	result, err := config.run(ctx, nil, "1.1.0", false,
+		func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			if name == "npm" {
+				cancel()
+			}
+			return nil, nil
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if !result.BinaryReplaced || result.CurrentVersion != "1.1.0" {
+		t.Errorf("post-interruption state = %+v, want the installed binary at 1.1.0", result)
+	}
+	if result.Stage != "skill_sync" || result.SkillSyncStatus != "failed" || result.SkillSyncCommand == "" {
+		t.Errorf("interruption omitted the replayable Skill sync state: %+v", result)
 	}
 }

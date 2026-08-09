@@ -10,7 +10,7 @@ Security fixes are applied to the **latest minor release** on the default branch
 
 | Version | Supported |
 |---------|-----------|
-| latest `0.1.0` minor | Yes |
+| latest `1.0.0` minor | Yes |
 | older minors | No |
 
 ## Reporting a Vulnerability
@@ -38,7 +38,7 @@ The tiers (see SEC-SPEC §1):
 | **T1 medium** | writes external state, holds writable credentials |
 | **T2 high** | can cause irreversible / account-level damage (drop, transfer, account control) |
 
-Worst-case blast radius is bounded by the permissions of the configured credential and the upstream service's own policy. High-impact (mutating) commands go through the `--dry-run` → `--confirm <token>` write loop (CLI-SPEC §7); at T2, dangerous operations require a second gate (`dangerous` permission tier or `--force`) beyond the confirm token. The blast radius of each command class is stated in `reference`.
+Worst-case blast radius is bounded by the permissions of the configured credential and the upstream service's own policy. Every upstream command is read-only. The destructive local `logout` command goes through the `--dry-run` → `--confirm <token>` write loop before deleting stored credentials (CLI-SPEC §7). Self-update is exempt under CLI-SPEC §14 and relies on signature verification instead. The blast radius of each command class is stated in `reference`.
 
 ## Credential Handling
 

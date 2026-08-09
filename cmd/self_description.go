@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	dedaocli "github.com/fatecannotbealtered/dedao-cli"
 	"github.com/fatecannotbealtered/dedao-cli/internal/contract"
 	"github.com/fatecannotbealtered/dedao-cli/internal/dedao"
 	"github.com/spf13/cobra"
@@ -15,10 +16,9 @@ import (
 
 // releaseReadiness is the machine-readable publish gate (CLI-SPEC §13).
 //
-// It is deliberately `beta`, not `stable`: the mock-upstream contract tests and
-// FCC enumeration are in place, but the recorded live smoke covers only the
-// anonymous surface. Declaring `stable` without that evidence is exactly the
-// dishonesty the gate exists to prevent.
+// It is deliberately `beta`, not `stable`: command-level FCC and mock-upstream
+// tests pass, but no repeatable live smoke/E2E record is available. Declaring
+// `stable` without that evidence is exactly the dishonesty the gate prevents.
 var releaseReadiness = map[string]any{
 	"level":                          "beta",
 	"fcc_required":                   true,
@@ -26,19 +26,9 @@ var releaseReadiness = map[string]any{
 	"mock_upstream_required":         true,
 	"mock_upstream_status":           "verified",
 	"live_smoke_required_for_stable": true,
-	"live_smoke_status":              "recorded",
-	"reason": "Every declared command has command-level tests against a mock upstream, and " +
-		"the JSON surface was exercised against the live upstream on 2026-08-07 with a " +
-		"signed-in account; twelve output_schemas were corrected to the measured payload " +
-		"as a result. Beta rather than stable because that smoke is a one-off record, not " +
-		"a repeatable gate: it needs a signed-in account and is not wired into CI, and the " +
-		"mock fixtures still return synthetic shapes, so they cannot catch schema drift on " +
-		"their own. Three of the content readers have no live happy-path evidence, " +
-		"because the account that recorded the smoke owns no ebooks, no audiobooks, and " +
-		"no course with video: `ebook-chapters`/`ebook-read`, `audiobook-media`, and " +
-		"`article-captions` are implemented and tested against a mock, and what has been " +
-		"verified live is their refusals. `daily` was verified live on 2026-08-08: the " +
-		"first run took a baseline and the second reported nothing new.",
+	"live_smoke_status":              "missing",
+	"reason": "Command-level functional contract coverage and mock-upstream tests pass. " +
+		"A repeatable live smoke/E2E record is not available, so this remains beta rather than stable.",
 	"required_evidence": []string{
 		"functional_contract_coverage_100",
 		"mock_upstream_contract_tests",
@@ -67,8 +57,8 @@ type referenceCommand struct {
 	Children     []referenceCommand `json:"children"`
 }
 
-// localWriteCommands change local state only; nothing in this tool writes
-// upstream, so the §7 dry-run/confirm gate does not apply to any command.
+// localWriteCommands change local state. They still use the §7 confirmation
+// gate when the change is destructive, as logout does.
 var localWriteCommands = map[string]bool{"logout": true, "login": true, "login-resume": true}
 
 func commandType(name string) string {
@@ -189,9 +179,9 @@ func (a *application) referenceCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 	}
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
-		exitCodes := map[string]any{}
+		errorCodes := map[string]any{}
 		for code, spec := range contract.Codes {
-			exitCodes[code] = map[string]any{"exit": spec.Exit, "retryable": spec.Retryable}
+			errorCodes[code] = map[string]any{"exit": spec.Exit, "retryable": spec.Retryable}
 		}
 		return a.success(map[string]any{
 			"tool":                  "dedao-cli",
@@ -202,10 +192,11 @@ func (a *application) referenceCommand() *cobra.Command {
 			"release_readiness":     releaseReadiness,
 			"commands":              collectCommands(c.Root()),
 			"schemas":               outputSchemas,
-			"exit_codes":            exitCodes,
+			"exit_codes":            dedaocli.ExitCodeMeanings(),
+			"error_codes":           errorCodes,
 			"global_options": []string{
 				"--format json|text|raw", "--json", "--fields <a,b,c>", "--compact",
-				"--quiet", "--state-dir <path>", "--timeout <duration>",
+				"--limit <count>", "--quiet", "--state-dir <path>", "--timeout <duration>",
 			},
 			"security": map[string]any{
 				"untrusted_marker": "_untrusted",

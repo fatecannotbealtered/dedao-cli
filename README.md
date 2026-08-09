@@ -47,7 +47,7 @@ PowerShell uses `$env:NAME = "value"` for the same environment variables. Keep r
 
 `dedao-cli` is designed for AI Agents first. JSON is the default output and the live command surface is discoverable through `dedao-cli reference`.
 
-Every upstream command is **read-only**: the tool never purchases, comments, follows, or mutates progress, so the `--dry-run` to `--confirm <confirm_token>` write gate in CLI-SPEC §7 applies to no command here. The commands that write anything write locally only: `login`, `login-resume`, and `logout` manage the stored session.
+Every upstream command is **read-only**: the tool never purchases, comments, follows, or mutates progress. The commands that write anything write locally only: `login` and `login-resume` save the session, while the destructive `logout` flow requires `logout --dry-run` followed by `logout --confirm <confirm_token>` before it removes stored credentials (CLI-SPEC §7).
 
 Worst-case risk tier: **T1** - every upstream command is read-only and the tool never purchases, comments, or mutates account state, but it holds an account-level Dedao login session whose leak would expose the account, so credential handling follows the T1 baseline. See [SECURITY.md](SECURITY.md) and [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md).
 

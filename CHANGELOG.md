@@ -7,8 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-09
+
+### Fixed
+
+- JSON output now canonicalizes every object key to snake_case, converts
+  semantic timestamps to RFC3339 UTC, preserves incomplete display text under
+  `*_label`, and rejects normalization collisions instead of silently dropping
+  one value.
+- Logout confirmation tokens now cover legacy plaintext credential files as
+  well as the encrypted session, so adding or replacing any credential target
+  after dry-run returns `E_CONFLICT` without deleting it.
+- README and security guidance now document the required two-step confirmation
+  flow for the destructive local `logout` command.
+
 ### Security
 
+- Logout confirmation tokens are bound to an irreversible fingerprint of the
+  exact stored session, so replacing credentials after dry-run invalidates the
+  old token before anything is deleted.
 - `doctor` gained a `plaintext_credentials` check, and `logout` now removes
   every plaintext credential file it knows about rather than only the one the
   current build writes. A state directory carried over from the reference
@@ -17,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exposure and neither command would have cleared them.
 
 ### Added
+
+- A package.json-backed runtime version source now keeps `--version`, self-
+  description, doctor, changelog, and update metadata aligned.
+- Query commands accept the standard `--limit` flag and expose normalized
+  `count`/`has_more` pagination metadata; numeric ID fields are strings at the
+  output boundary.
 
 - Five content-reading commands complete the owned-content surface:
   `article-captions` (a course video's caption track as text),
@@ -82,6 +105,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `reference.error_codes` exposes the canonical E_* bindings while
+  `reference.exit_codes` exposes the numeric exit-meaning table from
+  `contract.json`; local credential deletion documents the required
+  dry-run/confirm flow.
 
 ### Fixed
 
@@ -166,7 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Copy the block below for each release. Newest version first.
 Keep the link references at the bottom of the file in sync.
 
-## [0.1.0] - YYYY-MM-DD
+## [1.0.0] - YYYY-MM-DD
 
 ### Added
 
@@ -182,6 +209,6 @@ Keep the link references at the bottom of the file in sync.
 
 ### Security
 
-[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v0.1.0
+[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.0.0
 -->

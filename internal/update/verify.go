@@ -1,6 +1,7 @@
 package update
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -29,12 +30,15 @@ import (
 // Keyless signing proves *someone* signed it; without pinning the identity, any
 // GitHub Actions workflow anywhere would satisfy the check. The issuer is
 // GitHub's OIDC provider and the SAN is this repo's release workflow.
-func certificateIdentity(repo string) (verify.CertificateIdentity, error) {
+func certificateIdentity(repo, targetTag string) (verify.CertificateIdentity, error) {
 	// A regexp, anchored, with the repo and workflow path escaped: the second
 	// argument is regexp source, so an unescaped `.` would match any character
 	// and a bare `*` would not mean "any tag" at all.
-	san := fmt.Sprintf(`^%s@refs/tags/.+$`,
-		regexp.QuoteMeta(fmt.Sprintf("https://github.com/%s/.github/workflows/release.yml", repo)))
+	if strings.TrimSpace(targetTag) == "" {
+		return verify.CertificateIdentity{}, fmt.Errorf("target release tag is empty")
+	}
+	san := fmt.Sprintf(`^%s$`, regexp.QuoteMeta(fmt.Sprintf(
+		"https://github.com/%s/.github/workflows/release.yml@refs/tags/%s", repo, targetTag)))
 	matcher, err := verify.NewSANMatcher("", san)
 	if err != nil {
 		return verify.CertificateIdentity{}, err
@@ -52,13 +56,24 @@ func certificateIdentity(repo string) (verify.CertificateIdentity, error) {
 // trustedRoot bootstraps Sigstore's trust material from the library's embedded
 // root, not from a first-use fetch: TOFU would make the first update the
 // weakest one.
-func trustedRoot() (root.TrustedMaterial, error) {
-	options := tuf.DefaultOptions()
+func trustedRootOptions(ctx context.Context) *tuf.Options {
+	return tuf.DefaultOptions().WithContext(ctx)
+}
+
+func trustedRoot(ctx context.Context) (root.TrustedMaterial, error) {
+	options := trustedRootOptions(ctx)
 	live, err := root.NewLiveTrustedRoot(options)
 	if err != nil {
-		return nil, err
+		return nil, trustedRootError(ctx, err)
 	}
 	return live, nil
+}
+
+func trustedRootError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
 }
 
 // VerifyChecksums checks the Sigstore bundle over checksums.txt.
@@ -66,7 +81,7 @@ func trustedRoot() (root.TrustedMaterial, error) {
 // checksumsBundle is the protobuf bundle produced by
 // `cosign sign-blob --new-bundle-format`; the legacy cosign format is not
 // accepted, which is why parsing is strict rather than best-effort.
-func VerifyChecksums(repo string, checksums, checksumsBundle []byte) error {
+func VerifyChecksums(ctx context.Context, repo, targetTag string, checksums, checksumsBundle []byte) error {
 	if len(checksumsBundle) == 0 {
 		return fmt.Errorf("%w: the release carries no signature bundle for checksums.txt", ErrIntegrity)
 	}
@@ -76,8 +91,11 @@ func VerifyChecksums(repo string, checksums, checksumsBundle []byte) error {
 			ErrIntegrity, err)
 	}
 
-	material, err := trustedRoot()
+	material, err := trustedRoot(ctx)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		// Trust material we cannot establish is not a reason to proceed.
 		return fmt.Errorf("%w: could not establish Sigstore trust material: %v", ErrIntegrity, err)
 	}
@@ -88,7 +106,7 @@ func VerifyChecksums(repo string, checksums, checksumsBundle []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: could not build the verifier: %v", ErrIntegrity, err)
 	}
-	identity, err := certificateIdentity(repo)
+	identity, err := certificateIdentity(repo, targetTag)
 	if err != nil {
 		return fmt.Errorf("%w: could not build the signer identity policy: %v", ErrIntegrity, err)
 	}

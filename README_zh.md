@@ -47,7 +47,7 @@ PowerShell 使用 `$env:NAME = "value"` 设置同样的环境变量。真实密�
 
 `dedao-cli` 是 AI Agent 优先的 CLI。默认输出 JSON，实时命令面通过 `dedao-cli reference` 发现。
 
-所有上游命令都是**只读**的：本工具从不购买、评论、关注或修改学习进度，因此 CLI-SPEC §7 的 `--dry-run` → `--confirm <confirm_token>` 写闸门在这里不适用于任何命令。会写入的命令只写本地：`login`、`login-resume`、`logout` 管理保存的会话。
+所有上游命令都是**只读**的：本工具从不购买、评论、关注或修改学习进度。会写入的命令只写本地：`login` 与 `login-resume` 保存会话；具有删除性的 `logout` 必须先执行 `logout --dry-run`，再用返回的 token 执行 `logout --confirm <confirm_token>`，才能删除保存的凭据（CLI-SPEC §7）。
 
 最坏情况风险等级：**T1** —— 所有上游命令都是只读的，本工具从不购买、评论或修改账号状态；但它持有账号级的得到登录会话，一旦泄漏即暴露账号，因此凭据处理遵循 T1 基线。参见 [SECURITY.md](SECURITY.md) 和 [.agent/SEC-SPEC.md](.agent/SEC-SPEC.md)。
 

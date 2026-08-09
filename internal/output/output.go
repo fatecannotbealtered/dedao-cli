@@ -10,8 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/fatecannotbealtered/dedao-cli/internal/contract"
 )
@@ -21,6 +25,10 @@ const (
 	FormatText = "text"
 	FormatRaw  = "raw"
 )
+
+// ErrNormalization identifies a contract failure caused by two upstream keys
+// collapsing onto the same canonical output key (or by an unusable key).
+var ErrNormalization = errors.New("output normalization failed")
 
 // Hints is the actionable next step per error code. Agents branch on
 // `error.code`; the hint is for the human reading stderr and rides along in
@@ -159,7 +167,11 @@ func (p *Printer) Success(data any) error {
 	if p.options.Format == FormatRaw {
 		return errors.New("raw output requires Raw()")
 	}
-	annotated, err := annotateUntrusted(data, p.options.Untrusted)
+	normalized, err := normalizeOutputFields(data)
+	if err != nil {
+		return err
+	}
+	annotated, err := annotateUntrusted(normalized, p.options.Untrusted)
 	if err != nil {
 		return err
 	}
@@ -186,17 +198,259 @@ func (p *Printer) Failure(cliErr *CLIError) error {
 		_, err := fmt.Fprintf(p.out, "%s: %s\n", cliErr.Code, cliErr.Message)
 		return err
 	}
+	normalized, err := normalizeOutputFields(cliErr.Details)
+	if err != nil {
+		cliErr = NewError("E_UNKNOWN", "failed to normalize error details",
+			map[string]any{"normalization_error": err.Error()})
+		normalized = cliErr.Details
+	}
+	details, _ := normalized.(map[string]any)
 	return p.writeJSON(errorEnvelope{
 		OK:            false,
 		SchemaVersion: contract.SchemaVersion,
 		Error: errorObject{
 			Code:      cliErr.Code,
 			Message:   cliErr.Message,
-			Details:   cliErr.Details,
+			Details:   details,
 			Retryable: contract.Retryable(cliErr.Code),
 		},
 		Meta: p.commandMeta(),
 	})
+}
+
+// normalizeOutputFields enforces the fleet-wide JSON conventions at the last
+// boundary before stdout: object keys are snake_case, IDs are strings, and
+// semantic timestamps are RFC3339 UTC. It rejects key collisions instead of
+// allowing map iteration order to decide which value survives.
+func normalizeOutputFields(data any) (any, error) {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	return normalizeOutputValue(value, "$")
+}
+
+func normalizeOutputValue(value any, path string) (any, error) {
+	switch current := value.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(current))
+		for key := range current {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		normalized := make(map[string]any, len(current))
+		origins := make(map[string]string, len(current))
+		for _, original := range keys {
+			key := snakeCaseKey(original)
+			if key == "" {
+				return nil, fmt.Errorf("%w: output key at %s cannot be normalized: %q",
+					ErrNormalization, path, original)
+			}
+			child, err := normalizeOutputValue(current[original], path+"."+key)
+			if err != nil {
+				return nil, err
+			}
+			if isIDField(key) {
+				child = stringifyIDValue(child)
+			}
+			key, child = normalizeSemanticTime(key, child)
+			if previous, exists := origins[key]; exists {
+				return nil, fmt.Errorf("%w: output key collision at %s: %q and %q both normalize to %q",
+					ErrNormalization, path, previous, original, key)
+			}
+			origins[key] = original
+			normalized[key] = child
+		}
+		return normalized, nil
+	case []any:
+		for index, child := range current {
+			normalized, err := normalizeOutputValue(child, fmt.Sprintf("%s[%d]", path, index))
+			if err != nil {
+				return nil, err
+			}
+			current[index] = normalized
+		}
+		return current, nil
+	default:
+		return value, nil
+	}
+}
+
+func snakeCaseKey(key string) string {
+	// reference.error_codes is keyed by the canonical E_* enum names from
+	// contract.json; those names are values encoded as object keys, not field
+	// names, and must remain byte-identical for portable error handling.
+	if strings.HasPrefix(key, "E_") && strings.ToUpper(key) == key {
+		return key
+	}
+	runes := []rune(key)
+	out := make([]rune, 0, len(runes)+4)
+	for index, current := range runes {
+		if current == '_' {
+			if len(out) == 0 || out[len(out)-1] != '_' {
+				out = append(out, '_')
+			}
+			continue
+		}
+		if !unicode.IsLetter(current) && !unicode.IsDigit(current) {
+			if len(out) > 0 && out[len(out)-1] != '_' {
+				out = append(out, '_')
+			}
+			continue
+		}
+		if unicode.IsUpper(current) {
+			previousLowerOrDigit := index > 0 && (unicode.IsLower(runes[index-1]) || unicode.IsDigit(runes[index-1]))
+			nextLower := index+1 < len(runes) && unicode.IsLower(runes[index+1])
+			previousUpper := index > 0 && unicode.IsUpper(runes[index-1])
+			if len(out) > 0 && out[len(out)-1] != '_' && (previousLowerOrDigit || previousUpper && nextLower) {
+				out = append(out, '_')
+			}
+		}
+		out = append(out, unicode.ToLower(current))
+	}
+	for len(out) > 0 && out[len(out)-1] == '_' {
+		out = out[:len(out)-1]
+	}
+	return string(out)
+}
+
+func isIDField(key string) bool {
+	for _, part := range strings.Split(key, "_") {
+		switch part {
+		case "id", "ids", "enid", "enids", "uid", "uids", "pid", "pids", "sid", "sids", "uuid", "uuids":
+			return true
+		}
+	}
+	return false
+}
+
+func stringifyIDValue(value any) any {
+	switch current := value.(type) {
+	case []any:
+		for index, item := range current {
+			current[index] = stringifyIDValue(item)
+		}
+		return current
+	case json.Number:
+		return current.String()
+	case int:
+		return strconv.FormatInt(int64(current), 10)
+	case int8:
+		return strconv.FormatInt(int64(current), 10)
+	case int16:
+		return strconv.FormatInt(int64(current), 10)
+	case int32:
+		return strconv.FormatInt(int64(current), 10)
+	case int64:
+		return strconv.FormatInt(current, 10)
+	case uint:
+		return strconv.FormatUint(uint64(current), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(current), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(current), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(current), 10)
+	case uint64:
+		return strconv.FormatUint(current, 10)
+	case float32:
+		value := float64(current)
+		if math.Trunc(value) == value {
+			return strconv.FormatFloat(value, 'f', -1, 64)
+		}
+	case float64:
+		if math.Trunc(current) == current {
+			return strconv.FormatFloat(current, 'f', -1, 64)
+		}
+	}
+	return value
+}
+
+func normalizeSemanticTime(key string, value any) (string, any) {
+	if !isSemanticTimeField(key) || value == nil {
+		return key, value
+	}
+	if timestamp, ok := semanticTimestamp(value); ok {
+		return canonicalTimeKey(key), timestamp
+	}
+	return timeLabelKey(key), value
+}
+
+func isSemanticTimeField(key string) bool {
+	switch key {
+	case "surplus_time", "elapsed_time", "interval_time", "response_time":
+		return false
+	case "time", "timestamp", "paytime", "time_now":
+		return true
+	}
+	return strings.HasSuffix(key, "_at") || strings.HasSuffix(key, "_at_ms") ||
+		strings.HasSuffix(key, "_at_unix") || strings.HasSuffix(key, "_time")
+}
+
+func canonicalTimeKey(key string) string {
+	if strings.HasSuffix(key, "_at_ms") {
+		return strings.TrimSuffix(key, "_ms")
+	}
+	if strings.HasSuffix(key, "_at_unix") {
+		return strings.TrimSuffix(key, "_unix")
+	}
+	return key
+}
+
+func timeLabelKey(key string) string {
+	for _, suffix := range []string{"_at_ms", "_at_unix", "_at", "_time"} {
+		if strings.HasSuffix(key, suffix) {
+			base := strings.TrimSuffix(key, suffix)
+			if base != "" {
+				return base + "_label"
+			}
+		}
+	}
+	if key == "time_now" {
+		return "now_label"
+	}
+	return key + "_label"
+}
+
+func semanticTimestamp(value any) (string, bool) {
+	text := strings.TrimSpace(fmt.Sprint(value))
+	if number, ok := value.(json.Number); ok {
+		text = number.String()
+	}
+	if epoch, err := strconv.ParseInt(text, 10, 64); err == nil && epoch > 0 {
+		switch len(text) {
+		case 10:
+			return time.Unix(epoch, 0).UTC().Format(time.RFC3339), true
+		case 13:
+			return time.UnixMilli(epoch).UTC().Format(time.RFC3339), true
+		}
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		return parsed.UTC().Format(time.RFC3339Nano), true
+	}
+	for _, layout := range []string{"2006-01-02", "2006/01/02", "2006年01月02日"} {
+		if parsed, err := time.Parse(layout, text); err == nil {
+			return parsed.UTC().Format(time.RFC3339), true
+		}
+	}
+	china := time.FixedZone("China Standard Time", 8*60*60)
+	for _, layout := range []string{
+		"2006-01-02 15:04:05", "2006-01-02 15:04",
+		"2006/01/02 15:04:05", "2006/01/02 15:04",
+		"2006年01月02日 15:04:05", "2006年01月02日 15:04",
+	} {
+		if parsed, err := time.ParseInLocation(layout, text, china); err == nil {
+			return parsed.UTC().Format(time.RFC3339), true
+		}
+	}
+	return "", false
 }
 
 func (p *Printer) Raw(data []byte) error {
@@ -273,6 +527,23 @@ func projectFields(data any, fields []string) (any, error) {
 			return nil, fmt.Errorf("unknown output field %q", field)
 		}
 		projected[field] = value
+	}
+	if marked, ok := object["_untrusted"].([]any); ok {
+		kept := make([]any, 0, len(marked))
+		for _, value := range marked {
+			field, ok := value.(string)
+			if !ok {
+				continue
+			}
+			if _, present := projected[field]; present {
+				kept = append(kept, field)
+			}
+		}
+		if len(kept) > 0 {
+			projected["_untrusted"] = kept
+		} else {
+			delete(projected, "_untrusted")
+		}
 	}
 	return projected, nil
 }

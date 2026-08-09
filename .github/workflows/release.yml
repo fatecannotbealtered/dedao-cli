@@ -74,13 +74,25 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Verify version consistency
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})"
+            exit 1
+          fi
+          npm run test-release-scripts
+          node scripts/check-version.js
+
       - name: Extract release notes
         run: |
-          # Slice the '## [VERSION]' section out of CHANGELOG.md for this tag.
           VERSION="${GITHUB_REF#refs/tags/v}"
-          sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$ { /^## \[/d }' > release-notes.md
-          # Defensive fallback: if the slice is empty, ship the whole changelog.
-          [ -s release-notes.md ] || cp CHANGELOG.md release-notes.md
+          node scripts/extract-release-notes.js "$VERSION" release-notes.md
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -110,20 +122,6 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
           always-auth: true
-
-      - name: Verify version consistency
-        run: |
-          # Guard: the git tag must match package.json version, else the npm
-          # release would diverge from the GitHub release.
-          TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Tag version (${TAG_VERSION}) does not match package.json version (${PKG_VERSION})"
-            exit 1
-          fi
-          # Extend the guard to every derived location (SKILL.md, lockfile pins,
-          # optionalDependencies, CHANGELOG), not just package.json.
-          node scripts/check-version.js
 
       - name: Download release archives
         env:

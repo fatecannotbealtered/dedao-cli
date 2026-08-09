@@ -22,9 +22,9 @@ This repo is an **AI-native CLI tool**: designed for AI agents first.
 8. **Functional Contract Coverage = 100% before release**: every public README / Skill / reference / help / context / doctor / changelog / update behavior has command-level tests.
 9. **Release readiness is explicit**: `reference.release_readiness` and `doctor` declare `stable`, `beta`, or `unpublishable`; `stable` requires recorded live smoke/E2E evidence.
 
-## This project (fill in the placeholders below for a new tool)
+## This project
 
-- Tool name: `<tool-name>`
-- Language / distribution: `<language>` + `<packaging>` (e.g. Go/PyInstaller + npm wrapper)
-- Source: `<package>/`; tests: `tests/`; Skill: `skills/<tool-name>/SKILL.md`
-- Local checks: `<test command> && <lint command> && <format check command>`
+- Tool name: `dedao-cli`
+- Language / distribution: Go + standalone binaries / npm wrapper
+- Source: `cmd/` and `internal/`; tests: co-located `*_test.go`; Skill: `skills/dedao-cli/SKILL.md`
+- Local checks: `go test ./... && go vet ./... && golangci-lint run ./... && node scripts/check-version.js && node scripts/check-spec.js`

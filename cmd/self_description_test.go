@@ -1,9 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	dedaocli "github.com/fatecannotbealtered/dedao-cli"
 )
 
 func TestReference_DescribesEveryCommandUsably(t *testing.T) {
@@ -15,11 +21,20 @@ func TestReference_DescribesEveryCommandUsably(t *testing.T) {
 
 	for _, key := range []string{
 		"tool", "version", "schema_version", "risk_tier", "minimum_skill_version",
-		"release_readiness", "commands", "schemas", "exit_codes", "global_options", "security", "output",
+		"release_readiness", "commands", "schemas", "exit_codes", "error_codes", "global_options", "security", "output",
 	} {
 		if _, ok := data[key]; !ok {
 			t.Errorf("reference is missing %q", key)
 		}
+	}
+	canonical := canonicalContract(t)
+	exitCodeSpec, _ := canonical["exit_codes"].(map[string]any)
+	if !reflect.DeepEqual(data["exit_codes"], exitCodeSpec["table"]) {
+		t.Errorf("reference exit_codes must match contract.json's canonical numeric meaning table")
+	}
+	errorCodes, _ := data["error_codes"].(map[string]any)
+	if _, ok := errorCodes["E_USAGE"]; !ok {
+		t.Error("reference error_codes must keep the E_* binding map")
 	}
 
 	commands, _ := data["commands"].([]any)
@@ -85,6 +100,13 @@ func TestReference_ReleaseReadinessIsHonest(t *testing.T) {
 	for _, key := range []string{"fcc_required", "fcc_status", "mock_upstream_status", "live_smoke_status", "reason", "required_evidence"} {
 		if _, ok := readiness[key]; !ok {
 			t.Errorf("release_readiness is missing %q", key)
+		}
+	}
+	allowedStatus := map[string]bool{"verified": true, "missing": true, "not_applicable": true, "unknown": true}
+	for _, key := range []string{"fcc_status", "mock_upstream_status", "live_smoke_status"} {
+		status, _ := readiness[key].(string)
+		if !allowedStatus[status] {
+			t.Errorf("%s = %q, want verified, missing, not_applicable, or unknown", key, status)
 		}
 	}
 }
@@ -189,15 +211,18 @@ func TestChangelog_ParsesEmbeddedSource(t *testing.T) {
 		t.Errorf("current_version = %v, want %v", data["current_version"], version)
 	}
 	entries, _ := data["entries"].([]any)
-	if len(entries) == 0 {
-		t.Fatal("changelog produced no entries; the embed or the parser is broken")
+	want := parseChangelog(dedaocli.ChangelogMarkdown)
+	if len(entries) != len(want) {
+		t.Fatalf("changelog returned %d entries, embedded source parses to %d", len(entries), len(want))
 	}
-	first, _ := entries[0].(map[string]any)
-	if _, ok := first["version"]; !ok {
-		t.Error("entry is missing version")
-	}
-	if _, ok := first["changes"]; !ok {
-		t.Error("entry is missing changes")
+	if len(entries) > 0 {
+		first, _ := entries[0].(map[string]any)
+		if _, ok := first["version"]; !ok {
+			t.Error("entry is missing version")
+		}
+		if _, ok := first["changes"]; !ok {
+			t.Error("entry is missing changes")
+		}
 	}
 }
 
@@ -227,6 +252,76 @@ func TestChangelog_ParserSkipsUnreleased(t *testing.T) {
 	}
 	if got := entries[0].Changes["added"]; len(got) != 1 || got[0] != "shipped" {
 		t.Errorf("changes.added = %v, want [shipped]", got)
+	}
+}
+
+func TestChangelog_ParserIgnoresHTMLComments(t *testing.T) {
+	entries := parseChangelog("<!--\n## [9.9.9] - YYYY-MM-DD\n\n### Added\n- template\n-->\n\n## [1.0.0] - 2026-01-01\n\n### Added\n- shipped\n")
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want only the real release", len(entries))
+	}
+	if entries[0].Version != "1.0.0" {
+		t.Errorf("version = %q, want 1.0.0", entries[0].Version)
+	}
+}
+
+func packageManifestVersion(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return manifest.Version
+}
+
+func TestSelfDescriptionVersionsMatchPackageManifest(t *testing.T) {
+	want := packageManifestVersion(t)
+	if version != want || SkillMinVersion != want {
+		t.Fatalf("runtime versions = %q/%q, package.json version = %q", version, SkillMinVersion, want)
+	}
+	if got := runCLI(t, nil, "--version"); got.Exit != 0 || !strings.Contains(got.Stdout, want) {
+		t.Errorf("--version = exit %d, stdout %q; want %q", got.Exit, got.Stdout, want)
+	}
+	for _, command := range []string{"reference", "context", "changelog"} {
+		data := runCLI(t, nil, command, "--compact").Data(t)
+		key := "version"
+		if command == "changelog" {
+			key = "current_version"
+		}
+		if data[key] != want {
+			t.Errorf("%s.%s = %v, want %q", command, key, data[key], want)
+		}
+	}
+	doctor := runCLI(t, nil, "doctor", "--state-dir", stateDir(t, false), "--compact").Data(t)
+	checks, _ := doctor["checks"].([]any)
+	for _, raw := range checks {
+		check, _ := raw.(map[string]any)
+		if check["check"] != "version" {
+			continue
+		}
+		details, _ := check["details"].(map[string]any)
+		if details["current_version"] != want {
+			t.Errorf("doctor current_version = %v, want %q", details["current_version"], want)
+		}
+	}
+}
+
+func TestSchemas_LogoutDeclaresConfirmationFlow(t *testing.T) {
+	schema := outputSchemas["logout_result"]
+	for _, field := range []string{"preview", "confirm_token", "expires_at", "logged_out", "previously_configured"} {
+		if !slices.Contains(schema.Fields, field) {
+			t.Errorf("logout_result is missing %q", field)
+		}
+	}
+	examples := commandExamples["logout"]
+	if len(examples) < 2 || !strings.Contains(examples[0], "--dry-run") || !strings.Contains(examples[1], "--confirm") {
+		t.Errorf("logout examples must show dry-run then confirm, got %v", examples)
 	}
 }
 

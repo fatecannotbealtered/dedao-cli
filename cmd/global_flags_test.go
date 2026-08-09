@@ -26,6 +26,10 @@ func TestGlobalFlags_FieldsProjectsData(t *testing.T) {
 	if _, ok := data["list"]; !ok {
 		t.Error("--fields list dropped the requested field")
 	}
+	marked, ok := data["_untrusted"].([]any)
+	if !ok || len(marked) != 1 || marked[0] != "list" {
+		t.Errorf("--fields list must preserve _untrusted=[list], got %#v", data["_untrusted"])
+	}
 	for _, dropped := range []string{"is_more", "page"} {
 		if _, present := data[dropped]; present {
 			t.Errorf("--fields list should have dropped %q", dropped)

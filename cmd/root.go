@@ -8,21 +8,24 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	dedaocli "github.com/fatecannotbealtered/dedao-cli"
 	"github.com/fatecannotbealtered/dedao-cli/internal/dedao"
 	"github.com/fatecannotbealtered/dedao-cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
-var version = "0.1.0"
+var version = dedaocli.Version
 
 // SkillMinVersion is the tool version the bundled Skill was written against.
 // `doctor` compares it so a Skill that expects newer commands fails loudly
 // rather than calling something that does not exist (CLI-SPEC §14).
-const SkillMinVersion = "0.1.0"
+var SkillMinVersion = dedaocli.Version
 
 type application struct {
 	in  io.Reader
@@ -35,6 +38,7 @@ type application struct {
 	compact   bool
 	fields    []string
 	quiet     bool
+	limit     int
 	// untrusted is the running command's declared untrusted field list.
 	untrusted []string
 
@@ -44,7 +48,10 @@ type application struct {
 
 // Execute is the process entry point.
 func Execute() {
-	os.Exit(ExecuteArgs(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	exit := ExecuteArgs(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+	stop()
+	os.Exit(exit)
 }
 
 // ExecuteArgs runs one isolated invocation and returns its process exit code.
@@ -88,6 +95,9 @@ func (a *application) rootCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if err := a.applyLimit(cmd); err != nil {
+				return err
+			}
 			// Resolved here, from the leaf command about to run, so the marker
 			// on `data` is exactly the list `reference` declares for it.
 			a.untrusted = untrustedFieldsFor(cmd.Name())
@@ -100,6 +110,7 @@ func (a *application) rootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&a.compact, "compact", false, "Emit compact JSON")
 	root.PersistentFlags().StringSliceVar(&a.fields, "fields", nil, "Return only these top-level data fields")
 	root.PersistentFlags().BoolVar(&a.quiet, "quiet", false, "Suppress non-error stderr diagnostics")
+	root.PersistentFlags().IntVar(&a.limit, "limit", 0, "Maximum number of list items to return")
 	root.PersistentFlags().StringVar(&a.stateDir, "state-dir", "", "Session directory (default $DEDAO_HOME or ~/.dedao-api)")
 	root.PersistentFlags().DurationVar(&a.timeout, "timeout", 0, "Upstream request timeout")
 
@@ -186,6 +197,10 @@ func (a *application) printer() *output.Printer {
 
 func (a *application) success(data any) error {
 	if err := a.printer().Success(data); err != nil {
+		if errors.Is(err, output.ErrNormalization) {
+			return output.WrapError("E_UNKNOWN", "failed to normalize command output", err,
+				map[string]any{"normalization_error": err.Error()})
+		}
 		if len(a.fields) > 0 {
 			return output.WrapError("E_VALIDATION", "invalid --fields selection", err, nil)
 		}

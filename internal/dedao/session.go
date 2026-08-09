@@ -1,12 +1,15 @@
 package dedao
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/fatecannotbealtered/dedao-cli/internal/secret"
@@ -44,6 +47,46 @@ func cookiePath(stateDir string) string {
 
 // sessionSecret is the name the session is sealed under in the secret store.
 const sessionSecret = "session"
+
+// CredentialFingerprint irreversibly identifies all credential material that
+// logout will remove. Cookie order is normalized so the same target state is
+// stable while any current or legacy credential change invalidates the token.
+func (c *Client) CredentialFingerprint() string {
+	base, err := url.Parse(c.baseURL + "/")
+	if err != nil {
+		return ""
+	}
+	type credentialPart struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	parts := make([]credentialPart, 0)
+	for _, cookie := range c.jar.Cookies(base) {
+		parts = append(parts, credentialPart{Name: cookie.Name, Value: cookie.Value})
+	}
+	sort.Slice(parts, func(i, j int) bool {
+		if parts[i].Name != parts[j].Name {
+			return parts[i].Name < parts[j].Name
+		}
+		return parts[i].Value < parts[j].Value
+	})
+	hash := sha256.New()
+	encoded, _ := json.Marshal(parts)
+	_, _ = hash.Write(encoded)
+	for _, path := range LegacyPlaintextFiles(c.stateDir) {
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(filepath.Base(path)))
+		_, _ = hash.Write([]byte{0})
+		if raw, err := os.ReadFile(path); err == nil {
+			digest := sha256.Sum256(raw)
+			_, _ = hash.Write(digest[:])
+		} else if info, statErr := os.Stat(path); statErr == nil {
+			metadata, _ := json.Marshal([]any{info.Size(), info.ModTime().UTC().UnixNano()})
+			_, _ = hash.Write(metadata)
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
 
 // loadCookies restores a persisted session. A missing or unreadable file is not
 // an error: the caller simply ends up unauthenticated.

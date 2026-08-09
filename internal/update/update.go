@@ -197,6 +197,21 @@ func (c Config) ClearCache() error { return c.writeCache(nil) }
 // an unreachable network.
 var ErrNoRelease = errors.New("the repository publishes no release yet")
 
+// ErrRateLimited marks a release service refusal that should be retried only
+// after backing off.
+var ErrRateLimited = errors.New("the release service rate-limited the request")
+
+// ErrAssetMissing means a release artifact named by the release metadata is
+// absent. Required verification artifacts turn this into ErrIntegrity; a
+// transport error remains retryable.
+var ErrAssetMissing = errors.New("release asset is missing")
+
+func rateLimitedResponse(response *http.Response) bool {
+	return response.StatusCode == http.StatusTooManyRequests ||
+		(response.StatusCode == http.StatusForbidden &&
+			response.Header.Get("X-RateLimit-Remaining") == "0")
+}
+
 // releaseAPI is the GitHub endpoint for the newest release.
 func (c Config) releaseAPI() string {
 	return "https://api.github.com/repos/" + c.Repo + "/releases/latest"
@@ -228,6 +243,9 @@ func (c Config) fetchLatestFrom(ctx context.Context, client *http.Client, endpoi
 	// a condition that cannot change until someone tags a release.
 	if response.StatusCode == http.StatusNotFound {
 		return nil, ErrNoRelease
+	}
+	if rateLimitedResponse(response) {
+		return nil, ErrRateLimited
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("the release feed answered HTTP %d", response.StatusCode)
@@ -382,6 +400,7 @@ type Result struct {
 	TargetVersion    string `json:"target_version"`
 	UpdateAvailable  bool   `json:"update_available"`
 	InstallMethod    string `json:"install_method"`
+	Command          string `json:"command,omitempty"`
 	BinaryReplaced   bool   `json:"binary_replaced"`
 	SignatureStatus  string `json:"signature_status"`
 	SignatureVerify  bool   `json:"signature_verified"`
@@ -395,6 +414,31 @@ type Result struct {
 // ErrIntegrity marks a verification failure. It maps to E_INTEGRITY, which is
 // non-retryable: a release that fails to verify will fail again.
 var ErrIntegrity = errors.New("release integrity verification failed")
+
+// ErrInstallMethod means the executable cannot be updated safely until the
+// installation is repaired or repeated through a supported package manager.
+var ErrInstallMethod = errors.New("unsupported installation method")
+
+// CommandError preserves the exact argv command and its typed cause so the
+// CLI can provide a safe recovery command without guessing from stderr text.
+type CommandError struct {
+	Command string
+	Cause   error
+}
+
+func (e *CommandError) Error() string {
+	if e == nil || e.Cause == nil {
+		return ""
+	}
+	return e.Command + " failed: " + e.Cause.Error()
+}
+
+func (e *CommandError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
 
 // SkillSyncCommand is the command that brings the bundled Skill directory to
 // the same end state as a fresh install.
@@ -421,13 +465,16 @@ func (c Config) run(ctx context.Context, client *http.Client, targetVersion stri
 	method := c.installMethod()
 	result := &Result{
 		Status:          "noop",
-		Stage:           "resolve",
+		Stage:           "discover",
 		PreviousVersion: c.Version,
 		CurrentVersion:  c.Version,
 		InstallMethod:   string(method),
 		SignatureStatus: "not_checked",
 		ChecksumStatus:  "not_checked",
 		SkillSyncStatus: "not_attempted",
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 
 	target := strings.TrimPrefix(targetVersion, "v")
@@ -451,6 +498,10 @@ func (c Config) run(ctx context.Context, client *http.Client, targetVersion stri
 		return result, nil
 	}
 	result.UpdateAvailable = true
+	result.Command = c.Tool + " update --target-version " + target
+	if method == MethodNPM {
+		result.Command = fmt.Sprintf("npm install -g %s@%s", c.NPMPackage, target)
+	}
 
 	if dryRun {
 		result.Status = "dry_run"
@@ -461,13 +512,16 @@ func (c Config) run(ctx context.Context, client *http.Client, targetVersion stri
 
 	switch method {
 	case MethodNPM:
-		result.Stage = "package_manager"
+		result.Stage = "download"
 		// Drive the manager rather than printing the command: the contract is
 		// that one call reaches the upgraded end state.
 		if output, err := run(ctx, "npm", "install", "-g", c.NPMPackage+"@"+target); err != nil {
 			result.Status = "failed"
-			return result, fmt.Errorf("npm install -g %s@%s failed: %v: %s",
-				c.NPMPackage, target, err, strings.TrimSpace(string(output)))
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return result, ctxErr
+			}
+			return result, &CommandError{Command: result.Command,
+				Cause: fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))}
 		}
 		// Integrity on this path is the registry's own provenance, so there is
 		// no signature for the tool to check and it says so rather than
@@ -494,20 +548,29 @@ func (c Config) run(ctx context.Context, client *http.Client, targetVersion stri
 
 	default:
 		result.Status = "failed"
-		return result, fmt.Errorf(
+		return result, fmt.Errorf("%w: "+
 			"could not tell how %s was installed, so it will not replace the file; "+
-				"reinstall with `npm install -g %s@%s`", c.Tool, c.NPMPackage, target)
+			"reinstall with `npm install -g %s@%s`", ErrInstallMethod, c.Tool, c.NPMPackage, target)
 	}
 
 	result.Stage = "skill_sync"
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		result.Status = "partial"
+		result.SkillSyncStatus = "failed"
+		result.SkillSyncCommand = c.SkillSyncCommand()
+		return result, ctxErr
+	}
 	if output, err := run(ctx, "npx", "skills", "add", c.Repo, "-y", "-g"); err != nil {
 		// Partial success: the binary moved, the Skill did not. The agent must
 		// not use newly documented behavior until it has (CLI-SPEC §14).
 		result.Status = "partial"
 		result.SkillSyncStatus = "failed"
 		result.SkillSyncCommand = c.SkillSyncCommand()
-		return result, fmt.Errorf("the binary updated but the Skill did not sync: %v: %s",
-			err, strings.TrimSpace(string(output)))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return result, ctxErr
+		}
+		return result, &CommandError{Command: result.SkillSyncCommand,
+			Cause: fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))}
 	}
 	result.SkillSyncStatus = "synced"
 	result.Stage = "complete"
@@ -539,6 +602,12 @@ func (c Config) releaseFor(ctx context.Context, client *http.Client, version str
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusNotFound {
+			return nil, ErrNoRelease
+		}
+		if rateLimitedResponse(response) {
+			return nil, ErrRateLimited
+		}
 		return nil, fmt.Errorf("no release is published for version %s", version)
 	}
 	var release Release

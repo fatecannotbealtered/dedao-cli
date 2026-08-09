@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/fatecannotbealtered/dedao-cli/internal/update"
 )
 
 // `update --check` is a read-only probe. With no network it must still answer
@@ -21,11 +25,17 @@ func TestUpdateCheck_ReportsInstallMethodAndContract(t *testing.T) {
 		}
 		return
 	}
-	if code := got.ErrorCode(t); code != "E_NETWORK" {
-		t.Errorf("code = %s, want E_NETWORK when the release feed is unreachable", code)
-	}
-	if got.Exit != 7 {
-		t.Errorf("exit = %d, want 7", got.Exit)
+	switch code := got.ErrorCode(t); code {
+	case "E_NETWORK":
+		if got.Exit != 7 {
+			t.Errorf("exit = %d, want 7 for E_NETWORK", got.Exit)
+		}
+	case "E_TIMEOUT":
+		if got.Exit != 8 {
+			t.Errorf("exit = %d, want 8 for E_TIMEOUT", got.Exit)
+		}
+	default:
+		t.Errorf("code = %s, want E_NETWORK or E_TIMEOUT", code)
 	}
 }
 
@@ -89,6 +99,50 @@ func TestUpdate_AlreadyCurrentIsANoOp(t *testing.T) {
 	}
 	if available, _ := data["update_available"].(bool); available {
 		t.Error("update_available = true while on the target version")
+	}
+}
+
+func TestUpdate_CancelledContextEmitsTerminalState(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var stdout, stderr bytes.Buffer
+	exit := ExecuteArgs(ctx, []string{"update", "--target-version", "9.9.9", "--compact"},
+		strings.NewReader(""), &stdout, &stderr)
+	got := result{Stdout: stdout.String(), Stderr: stderr.String(), Exit: exit}
+	if code := got.ErrorCode(t); code != "E_INTERRUPTED" {
+		t.Fatalf("code = %q, want E_INTERRUPTED; stdout: %s", code, got.Stdout)
+	}
+	if got.Exit != 130 {
+		t.Errorf("exit = %d, want 130", got.Exit)
+	}
+	errorObject, _ := got.Envelope(t)["error"].(map[string]any)
+	details, _ := errorObject["details"].(map[string]any)
+	for _, field := range []string{"stage", "current_version", "binary_replaced", "skill_sync_status"} {
+		if _, ok := details[field]; !ok {
+			t.Errorf("interruption details omitted %q", field)
+		}
+	}
+	if stage, _ := details["stage"].(string); stage != "discover" {
+		t.Errorf("stage = %q, want discover", stage)
+	}
+}
+
+func TestUpdate_TimeoutAfterBinarySwapExplainsPartialRecovery(t *testing.T) {
+	err := asCLIError(updateFailure(&update.Result{
+		Stage:            "skill_sync",
+		PreviousVersion:  "1.0.0",
+		CurrentVersion:   "1.1.0",
+		BinaryReplaced:   true,
+		SkillSyncStatus:  "failed",
+		SkillSyncCommand: "npx skills add owner/repo -y -g",
+	}, context.DeadlineExceeded))
+	if err.Code != "E_TIMEOUT" {
+		t.Fatalf("code = %s, want E_TIMEOUT", err.Code)
+	}
+	for _, want := range []string{"1.1.0", "npx skills add owner/repo", "changelog --since 1.0.0"} {
+		if !strings.Contains(err.Message, want) {
+			t.Errorf("message %q does not contain %q", err.Message, want)
+		}
 	}
 }
 

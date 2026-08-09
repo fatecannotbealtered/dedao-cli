@@ -22,9 +22,9 @@
 8. **发布前 Functional Contract Coverage = 100%**：README / Skill / reference / help / context / doctor / changelog / update 中声明的每个公开行为都有命令级测试。
 9. **发布就绪等级显式声明**：`reference.release_readiness` 与 `doctor` 声明 `stable`、`beta` 或 `unpublishable`；`stable` 必须有真实环境 smoke/E2E 记录。
 
-## 本项目（新工具请填写以下占位符）
+## 本项目
 
-- 工具名：`<tool-name>`
-- 语言/分发：`<language>` + `<packaging>`（如 Go/PyInstaller + npm 壳）
-- 源码：`<package>/`；测试：`tests/`；Skill：`skills/<tool-name>/SKILL.md`
-- 本地校验：`<test command> && <lint command> && <format check command>`
+- 工具名：`dedao-cli`
+- 语言/分发：Go + 独立二进制 / npm 壳
+- 源码：`cmd/` 与 `internal/`；测试：同目录 `*_test.go`；Skill：`skills/dedao-cli/SKILL.md`
+- 本地校验：`go test ./... && go vet ./... && golangci-lint run ./... && node scripts/check-version.js && node scripts/check-spec.js`

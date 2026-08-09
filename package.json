@@ -1,6 +1,6 @@
 {
   "name": "@fateforge/dedao-cli",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Dedao (得到) CLI for AI Agents - read-only access to owned courses, articles, ebooks, audiobooks, notes, topics, and daily summaries",
   "license": "MIT",
   "author": "Sean Guo",
@@ -16,15 +16,16 @@
   },
   "scripts": {
     "version": "node scripts/sync-version.js",
-    "check-version": "node scripts/check-version.js"
+    "check-version": "node scripts/check-version.js",
+    "test-release-scripts": "node scripts/release-scripts.test.js"
   },
   "optionalDependencies": {
-    "@fateforge/dedao-cli-darwin-arm64": "0.1.0",
-    "@fateforge/dedao-cli-darwin-x64": "0.1.0",
-    "@fateforge/dedao-cli-linux-arm64": "0.1.0",
-    "@fateforge/dedao-cli-linux-x64": "0.1.0",
-    "@fateforge/dedao-cli-win32-arm64": "0.1.0",
-    "@fateforge/dedao-cli-win32-x64": "0.1.0"
+    "@fateforge/dedao-cli-darwin-arm64": "1.0.0",
+    "@fateforge/dedao-cli-darwin-x64": "1.0.0",
+    "@fateforge/dedao-cli-linux-arm64": "1.0.0",
+    "@fateforge/dedao-cli-linux-x64": "1.0.0",
+    "@fateforge/dedao-cli-win32-arm64": "1.0.0",
+    "@fateforge/dedao-cli-win32-x64": "1.0.0"
   },
   "files": [
     "scripts/run.js",
