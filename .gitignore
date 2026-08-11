@@ -40,3 +40,7 @@ release-notes.md
 # Internal reverse-engineering notes: the upstream API map and the acceptance
 # matrix. They stay on the maintainer's disk, as in the rest of this fleet.
 references/
+
+# Live-smoke run artifacts. The script is the reproducible part; a report is one
+# run's evidence and belongs with the release, not in the tree.
+live-smoke-report.json

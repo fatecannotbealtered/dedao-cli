@@ -17,9 +17,12 @@ import (
 
 // releaseReadiness is the machine-readable publish gate (CLI-SPEC §13).
 //
-// It is deliberately `beta`, not `stable`: command-level FCC and mock-upstream
-// tests pass, but no repeatable live smoke/E2E record is available. Declaring
-// `stable` without that evidence is exactly the dishonesty the gate prevents.
+// It is deliberately `beta`, not `stable`. CLI-SPEC §13's literal bar for
+// `stable` is met -- FCC is 100%, mock-upstream tests pass, and a recorded live
+// smoke of this candidate exists, writes included. What holds it back is what
+// the coverage number cannot say: no run has read a chapter or played a track
+// the account actually owns, so the entitled path through the ebook and
+// audiobook commands is still only proven against mocks.
 var releaseReadiness = map[string]any{
 	"level":                          "beta",
 	"fcc_required":                   true,
@@ -27,9 +30,27 @@ var releaseReadiness = map[string]any{
 	"mock_upstream_required":         true,
 	"mock_upstream_status":           "verified",
 	"live_smoke_required_for_stable": true,
-	"live_smoke_status":              "missing",
-	"reason": "Command-level functional contract coverage and mock-upstream tests pass. " +
-		"A repeatable live smoke/E2E record is not available, so this remains beta rather than stable.",
+	"live_smoke_status":              "verified",
+	// Measured, not estimated. `npm run live-smoke` runs every read command it
+	// can reach against the real service and fails on any payload carrying a
+	// field the contract does not declare; its first runs found four contract
+	// defects that every mock test had passed. The numbers below say what that
+	// run does and does not cover, because "verified" on its own would read as
+	// more than it is.
+	"live_smoke_covered_commands":       52,
+	"live_smoke_total_commands":         66,
+	"live_smoke_write_commands_covered": 7,
+	"live_smoke_uncovered_commands": []string{
+		"audiobook-agency", "channel-topic", "note", "topic",
+	},
+	"reason": "Command-level functional contract coverage and mock-upstream tests pass, and a " +
+		"repeatable live smoke (`npm run live-smoke -- --include-writes`) verifies 52 of 66 " +
+		"commands against the real service with no undeclared fields, including the GetNote write " +
+		"chain against a disposable note that is deleted before the run ends. The ebook and " +
+		"audiobook surfaces are covered through their detail endpoints, which answer for content " +
+		"the account does not own -- the entitlement refusals are part of what is verified. This " +
+		"stays beta because the 4 commands named above still have no live evidence, and because " +
+		"no run has yet exercised reading a chapter or playing a track the account owns.",
 	"required_evidence": []string{
 		"functional_contract_coverage_100",
 		"mock_upstream_contract_tests",

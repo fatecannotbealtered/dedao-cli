@@ -262,8 +262,14 @@ func asCLIError(err error) *output.CLIError {
 		return output.WrapError("E_AUTH", err.Error(), err, nil)
 	}
 	if errors.Is(err, getnoteapi.ErrAuthRequired) {
+		// One path, named once. `login` authorizes note access and mints the
+		// credentials itself; the API-key command is the fallback for CI, where
+		// nobody can approve an authorization.
 		return output.WrapError("E_AUTH", err.Error(), err, map[string]any{
-			"hint": "Run 'dedao-cli getnote auth login' with a GetNote API key and client ID.",
+			"hint": "Run 'dedao-cli login' and relay the returned link and user code to the " +
+				"person, then 'dedao-cli login-resume'.",
+			"resume":            "dedao-cli login",
+			"unattended_option": "dedao-cli getnote auth login --api-key-stdin --client-id <client-id>",
 		})
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -350,9 +356,21 @@ func getnoteErrorMessage(code string) string {
 // a permanently missing resource forever. Dedao's own message for it reads
 // "服务异常，请稍后重试", which is why classifying by message text rather than by
 // code would get this exactly backwards (CLI-SPEC §6).
+// Code 90015 is an entitlement wall: the audiobook-collection endpoint answers
+// with it and "无权访问，请获得相应权限后再试" for a package this account has no
+// subscription to, measured against two different packages. Falling through to
+// E_SERVER made a permission boundary look like a service fault, and E_SERVER is
+// retryable -- an agent would have hammered a wall that will never open. Saying
+// "you do not have access" is the whole point of this tool.
 func businessCode(value any) string {
-	if asInt(value) == 104000 {
+	// Code 5218 is the audiobook detail endpoints' "no such product", reproduced
+	// with both a real id of the wrong kind and an obviously invalid one. Like
+	// 104000 it is permanent, so it must not arrive as a retryable fault.
+	switch asInt(value) {
+	case 104000, 5218:
 		return "E_NOT_FOUND"
+	case 90015:
+		return "E_FORBIDDEN"
 	}
 	return "E_SERVER"
 }

@@ -40,7 +40,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("%s %s failed", e.Method, e.Path)
 }
 
-var ErrAuthRequired = errors.New("GetNote credentials are not configured; run `dedao-cli getnote auth login`")
+var ErrAuthRequired = errors.New("note access is not authorized yet; run `dedao-cli login`")
 
 type Options struct {
 	APIKey     string

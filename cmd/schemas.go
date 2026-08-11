@@ -25,16 +25,18 @@ type outputSchema struct {
 var outputSchemas = map[string]outputSchema{
 	"session_status": {
 		Shape:           "object",
-		Fields:          []string{"authenticated", "user"},
+		Fields:          []string{"authenticated", "user", "getnote"},
 		UntrustedFields: []string{"user"},
 	},
 	"logout_result": {
-		Shape:  "object",
-		Fields: []string{"preview", "confirm_token", "expires_at", "logged_out", "previously_configured"},
+		Shape: "object",
+		Fields: []string{"preview", "confirm_token", "expires_at", "logged_out", "previously_configured",
+			"getnote_stored_credentials_removed", "getnote_credentials_kept",
+			"getnote_environment_credentials_active"},
 	},
 	"login_result": {
 		Shape:           "object",
-		Fields:          []string{"logged_in", "user"},
+		Fields:          []string{"logged_in", "user", "getnote", "already_signed_in"},
 		UntrustedFields: []string{"user"},
 	},
 	"library_page": {
@@ -99,10 +101,10 @@ var outputSchemas = map[string]outputSchema{
 			"class_comment_info", "class_reviews", "class_reviews_count",
 			"achievement_detail", "lecturer_dedao_share", "live_info",
 			"live_inner_article_info", "is_show_grading", "show_free_tips",
-			"user_type", "time_now", "now_label"},
+			"user_type", "time_now", "count", "intro_article"},
 		UntrustedFields: []string{"class_info", "chapter_list", "items", "new_items",
 			"flat_article_list", "class_comment_info", "class_reviews",
-			"lecturer_dedao_share"},
+			"lecturer_dedao_share", "intro_article"},
 	},
 	"course_progress": {
 		Shape:           "object",
@@ -155,34 +157,62 @@ var outputSchemas = map[string]outputSchema{
 		Fields:          []string{"article_list", "count", "has_more", "class_id", "pid", "ptype", "reverse"},
 		UntrustedFields: []string{"article_list"},
 	},
+	// Declared as measured against the live service. `is_more` is the service's
+	// own flag and `article` echoes what was asked about; neither was declared
+	// before. `has_more` stays because `normalizePagination` adds it whenever the
+	// page boundary is known, so it is this tool's field rather than the
+	// service's. `page` was declared once and never arrives from either.
 	"comment_list": {
 		Shape:           "object",
-		Fields:          []string{"list", "count", "has_more", "total", "page"},
-		UntrustedFields: []string{"list"},
+		Fields:          []string{"list", "count", "has_more", "is_more", "total", "article"},
+		UntrustedFields: []string{"list", "article"},
 	},
+	// `notes` is the account's own writing; `article_point` is Dedao's summary of
+	// the article and arrives whether or not the account highlighted anything.
+	// `account_wrote_point` is the upstream flag that tells the two apart.
 	"note_bundle": {
 		Shape:           "object",
-		Fields:          []string{"notes", "point"},
-		UntrustedFields: []string{"notes", "point"},
+		Fields:          []string{"notes", "article_point", "account_wrote_point"},
+		UntrustedFields: []string{"notes", "article_point"},
 	},
 	"note_detail": {
 		Shape:           "object",
 		Fields:          []string{"detail", "comments"},
 		UntrustedFields: []string{"detail", "comments"},
 	},
+	// Declared as measured against the live service. The contract described a
+	// nested `book_info`/`price_info` shape; the service answers with a flat
+	// record of the fields below, of which only `author_info` overlapped. An
+	// agent reading `book_info` would have found nothing, every time.
 	"ebook_detail": {
-		Shape:           "object",
-		Fields:          []string{"book_info", "price_info", "author_info"},
-		UntrustedFields: []string{"book_info", "author_info"},
+		Shape: "object",
+		Fields: []string{
+			"activity_status", "add_studylist_dd_url", "author_info", "author_list",
+			"b_overseas_purchase", "b_special_price", "book_author", "book_intro", "book_type",
+			"can_trial_read", "catalog_list", "classify_id", "classify_name", "copywriting", "count",
+			"cover", "current_price", "douban_score", "enid", "experiment", "id", "is_buy", "is_buyed",
+			"is_on_bookshelf", "is_reserve", "is_trial", "is_tts_switch", "is_vip_book", "isbn",
+			"log_id", "log_type", "not_support_web", "not_support_web_menu", "operating_title",
+			"original_price", "other_share_summary", "other_share_title", "press", "price",
+			"product_score", "publish_time", "rank_name", "rank_num", "read_label", "read_number",
+			"status", "style", "title", "trial_read_proportion", "video_detail", "with_video",
+		},
+		UntrustedFields: []string{
+			"author_info", "author_list", "book_author", "book_intro", "catalog_list", "classify_name",
+			"copywriting", "experiment", "operating_title", "other_share_summary", "other_share_title",
+			"press", "rank_name", "read_label", "title", "video_detail",
+		},
 	},
 	"ebook_community": {
 		Shape:           "object",
 		Fields:          []string{"score", "reviews", "notes"},
 		UntrustedFields: []string{"reviews", "notes"},
 	},
+	// `quality` arrives alongside the record and was undeclared until a live read
+	// found it.
 	"audiobook_detail": {
 		Shape:           "object",
-		Fields:          []string{"detail", "related"},
+		Fields:          []string{"detail", "related", "quality"},
 		UntrustedFields: []string{"detail", "related"},
 	},
 	"audiobook_collection": {
@@ -232,10 +262,17 @@ var outputSchemas = map[string]outputSchema{
 		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
+	// Declared as measured against the live service. The list of content was
+	// declared as `list` and arrives as `product_list`; `page` was declared and
+	// arrives as `page_id` and `page_size`; and the navigation, the current
+	// label, and the request id were not declared at all. `count` and `has_more`
+	// come from `normalizePagination` once `product_list` carries items, so they
+	// appear only when it does.
 	"label_content": {
-		Shape:           "object",
-		Fields:          []string{"list", "count", "has_more", "is_more", "page"},
-		UntrustedFields: []string{"list"},
+		Shape: "object",
+		Fields: []string{"product_list", "navigation_list", "current_enid", "page_id",
+			"page_size", "request_id", "count", "has_more", "is_more"},
+		UntrustedFields: []string{"product_list", "navigation_list"},
 	},
 	"free_resources": {
 		Shape:           "object",

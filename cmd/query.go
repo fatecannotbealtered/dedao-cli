@@ -37,10 +37,27 @@ func libraryCategory(kind string) (string, error) {
 	return category, nil
 }
 
+// accountWrotePoint reads the upstream flag that separates a point the account
+// wrote from the publisher's own summary of an article. Upstream sends it as a
+// number, so a plain bool assertion would silently read every article as
+// "not mine".
+func accountWrotePoint(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case float64:
+		return typed != 0
+	case string:
+		return typed != "" && typed != "0"
+	default:
+		return false
+	}
+}
+
 func (a *application) statusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Report whether a Dedao session is loaded",
+		Short: "Report the Dedao session and GetNote credential state",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := a.client()
@@ -57,6 +74,23 @@ func (a *application) statusCommand() *cobra.Command {
 				}
 				data["user"] = user
 			}
+			// Content and notes authenticate different hosts by different means,
+			// but one tool should answer "what am I authenticated for" once. The
+			// GetNote half is reported here rather than only under
+			// `getnote auth status`, which stays for the note-only workflow.
+			apiKey, clientID, getnoteStateDir, err := a.loadGetnoteCredentials()
+			if err != nil {
+				return output.WrapError("E_CONFIG", "could not read GetNote credentials", err, nil)
+			}
+			apiKeySource, clientIDSource := getnoteCredentialSources(apiKey, clientID)
+			data["getnote"] = map[string]any{
+				"configured":           apiKey != "" && clientID != "",
+				"api_key_configured":   apiKey != "",
+				"client_id_configured": clientID != "",
+				"api_key_source":       apiKeySource,
+				"client_id_source":     clientIDSource,
+				"state_dir":            getnoteStateDir,
+			}
 			return a.success(data)
 		},
 	}
@@ -65,9 +99,10 @@ func (a *application) statusCommand() *cobra.Command {
 func (a *application) logoutCommand() *cobra.Command {
 	var dryRun bool
 	var confirm string
+	var keepGetnote bool
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Discard the stored Dedao session",
+		Short: "Discard the stored Dedao session and GetNote credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if dryRun && confirm != "" {
@@ -78,19 +113,46 @@ func (a *application) logoutCommand() *cobra.Command {
 				return err
 			}
 			configured := client.Authenticated()
+
+			// `logout` means "this machine no longer holds my credentials". The
+			// GetNote key opens a different host, but it is still this account's
+			// credential, so it goes too. `getnote auth logout` stays for
+			// clearing only that half.
+			getnoteStore, _, getnoteStored, getnoteFingerprint, err := a.getnoteStoredCredentials()
+			if err != nil {
+				return err
+			}
+			// Environment credentials outlive the store, so they are reported
+			// rather than silently counted as removed.
+			getnoteEnvironment := getnoteEnvironmentConfigured()
+
 			payload := logoutPayload(client.StateDirectory(), configured, client.CredentialFingerprint())
+			payload.KeepGetnote = keepGetnote
+			if !keepGetnote {
+				payload.GetnoteConfigured = getnoteStored
+				payload.GetnoteFingerprint = getnoteFingerprint
+			}
 			if dryRun {
 				token, expiresAt, err := newLogoutConfirmToken(payload)
 				if err != nil {
 					return output.WrapError("E_IO", "could not create a confirmation token", err, nil)
 				}
+				changes := []map[string]any{{
+					"action": "delete", "resource": "local_credentials", "id": "current",
+					"before": map[string]any{"configured": configured}, "after": nil,
+				}}
+				if !keepGetnote {
+					changes = append(changes, map[string]any{
+						"action": "delete", "resource": "getnote_stored_credentials", "id": "current",
+						"before": map[string]any{"configured": getnoteStored}, "after": nil,
+					})
+				}
 				return a.success(map[string]any{
-					"preview": map[string]any{"changes": []map[string]any{{
-						"action": "delete", "resource": "local_credentials", "id": "current",
-						"before": map[string]any{"configured": configured}, "after": nil,
-					}}},
-					"confirm_token": token,
-					"expires_at":    expiresAt.Format(time.RFC3339),
+					"preview":                                map[string]any{"changes": changes},
+					"getnote_credentials_kept":               keepGetnote,
+					"getnote_environment_credentials_active": getnoteEnvironment,
+					"confirm_token":                          token,
+					"expires_at":                             expiresAt.Format(time.RFC3339),
 				})
 			}
 			if err := validateLogoutConfirmToken(confirm, payload); err != nil {
@@ -102,11 +164,33 @@ func (a *application) logoutCommand() *cobra.Command {
 			if err := client.Logout(); err != nil {
 				return output.WrapError("E_IO", "could not remove the stored session", err, nil)
 			}
-			return a.success(map[string]any{"logged_out": true, "previously_configured": configured})
+			removed := false
+			if !keepGetnote {
+				if err := getnoteStore.Delete(getnoteAPIKeySecret); err != nil {
+					return output.WrapError("E_IO", "could not remove GetNote API key", err, nil)
+				}
+				if err := getnoteStore.Delete(getnoteClientIDSecret); err != nil {
+					return output.WrapError("E_IO", "could not remove GetNote client ID", err, nil)
+				}
+				// A started-but-unapproved authorization can still mint a key, so
+				// it is credential material and goes with the rest.
+				if err := getnoteStore.Delete(getnotePendingDeviceSecret); err != nil {
+					return output.WrapError("E_IO", "could not remove the pending GetNote authorization", err, nil)
+				}
+				removed = getnoteStored
+			}
+			return a.success(map[string]any{
+				"logged_out": true, "previously_configured": configured,
+				"getnote_stored_credentials_removed":     removed,
+				"getnote_credentials_kept":               keepGetnote,
+				"getnote_environment_credentials_active": getnoteEnvironment,
+			})
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview credential deletion and issue a confirmation token")
 	cmd.Flags().StringVar(&confirm, "confirm", "", "Execute credential deletion with a token returned by --dry-run")
+	cmd.Flags().BoolVar(&keepGetnote, "keep-getnote", false,
+		"Sign out of Dedao only, leaving the stored GetNote credentials in place")
 	return cmd
 }
 
@@ -373,7 +457,7 @@ func (a *application) queryCommands() []*cobra.Command {
 	var notesProductType int
 	articleNotes := &cobra.Command{
 		Use:   "article-notes <article-enid>",
-		Short: "List the account's notes on an article",
+		Short: "List the account's notes on an article, with Dedao's own article point",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return a.run(cmd, func(ctx context.Context, c *dedao.Client) (any, error) {
@@ -385,7 +469,19 @@ func (a *application) queryCommands() []*cobra.Command {
 				if err != nil {
 					return nil, err
 				}
-				return map[string]any{"notes": notes, "point": point}, nil
+				// Two different things arrive here, and only one of them is the
+				// account's. `notes` is what this person wrote. The point
+				// endpoint returns Dedao's own summary of the article whether or
+				// not the account ever highlighted anything -- measured: it
+				// carries editorial text while `has_article_point` is 0. Naming
+				// it `point` next to `notes` invites a reader to report the
+				// publisher's words as the user's, so it is named for what it is
+				// and the ownership flag is lifted out beside it.
+				result := map[string]any{"notes": notes, "article_point": point}
+				if object, ok := point.(map[string]any); ok {
+					result["account_wrote_point"] = accountWrotePoint(object["has_article_point"])
+				}
+				return result, nil
 			})
 		},
 	}

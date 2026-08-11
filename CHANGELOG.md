@@ -21,6 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `context` now distinguishes GetNote environment, encrypted-store, and mixed
   credential sources; `doctor` uses a bounded read-only request before it marks
   configured GetNote credentials valid.
+- `npm run live-smoke` runs every read command it can reach against the real
+  service and fails on any payload carrying a field the contract does not
+  declare. This is the layer the mock tests cannot reach: mock upstream answers
+  with shapes this repo wrote itself, so it can only confirm its own
+  assumptions. The script harvests identifiers from listings rather than
+  inventing them, never runs a write, and writes a report of command names,
+  outcomes, and field names with no identifiers and no account content.
+  `--include-writes` additionally runs the GetNote mutation chain -- save,
+  update, share, tag add/remove, knowledge-base add/remove, delete -- through
+  the two-step confirmation gate against one disposable note that is deleted
+  before the run ends, by marker lookup if its id could not be read.
+  `getnote kb create` stays out: GetNote has no command to delete a knowledge
+  base, so a run could not clean up after it. The ebook and audiobook
+  identifiers come from public listings rather than the library, because a
+  detail endpoint answers for content the account does not own -- so those
+  surfaces are covered, and their entitlement refusals are part of what is
+  verified. Candidates are validated before use: an identifier the detail
+  endpoint rejects is discarded rather than reported as a tool defect.
+  `release_readiness` reports the coverage it actually has: 52 of 66 commands,
+  7 of them writes, and it names the 4 it cannot reach.
+
 
 ### Security
 
@@ -35,10 +56,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured upstream error details are preserved under an explicitly
   `_untrusted` field while the stable top-level error message remains local.
 
+### Fixed
+
+- Login worked for nobody. Two independent faults on the pre-QR path, each
+  found by reproducing the call outside this tool: `/loginapi/getAccessToken`
+  wants the site's `csrfToken` cookie echoed back as the form field `_csrf`, not
+  as any spelling of an `x-csrf-token` header, and sending none at all answers a
+  bare 403 that reads like an IP block; and the QR endpoints take the token in
+  `X-Oauth-Access-Token`, while this build sent `xi-oauth-token`, which the
+  service ignores before reporting `Invalid access token ''` -- an empty token,
+  not a rejected one. The mock layer cannot see either: it has no cookies, no
+  CSRF, and does not check header names.
+- A permission wall no longer arrives as a retryable service fault. Dedao
+  answers business code 90015 with "无权访问" for content the account has no
+  subscription to, and 5218 for an audiobook product that does not exist; both
+  fell through to `E_SERVER`, which is retryable, so an agent would have retried
+  a wall that never opens and an id that will never resolve. They are now
+  `E_FORBIDDEN` and `E_NOT_FOUND`. Each was reproduced against two different
+  inputs, and classified by code rather than by message text.
+- `ebook` declared a nested `book_info`/`price_info` shape. The service answers
+  with a flat record of 51 fields, of which only `author_info` overlapped: an
+  agent reading `book_info` found nothing, every time. `audiobook` was missing
+  `quality`.
+
+- `label-content` declared a shape with no field in common with the real one.
+  The service returns `product_list`, `navigation_list`, `current_enid`,
+  `page_id`, `page_size`, `request_id`, and `is_more`; the contract declared
+  `list`, `has_more`, `is_more`, `count`, and `page`, of which only `is_more`
+  ever arrives.
+- `article-notes` no longer invites a caller to report Dedao's words as the
+  user's. The point endpoint returns Dedao's own summary of an article whether
+  or not the account highlighted anything; sitting under the key `point` beside
+  the account's `notes`, it read as the person's own writing. It is now
+  `article_point`, with the upstream ownership flag surfaced as
+  `account_wrote_point`. Measured against the live service, where editorial text
+  arrives with the flag set to 0.
+- `comments` declares the fields the service actually returns: `is_more`, the
+  service's own pagination flag, and `article`, which echoes what was asked
+  about. Neither was declared. `page` was declared and never arrives. The mock
+  layer answers with synthetic shapes, so only a live read could catch this.
+- `course` declares `count` and `intro_article`, and no longer declares
+  `now_label`, which the service never sends.
+- An unauthorized `getnote` command now points at `dedao-cli login`, which
+  authorizes note access and mints the credentials, instead of the manual
+  API-key path. That path is still named as the unattended option.
+
 ### Changed
 
 - The T1 threat model now includes explicitly confirmed GetNote writes while
   preserving the existing read-only boundary for every Dedao endpoint.
+- `login` now authorizes GetNote in the same pass as the Dedao QR scan, using
+  GetNote's OAuth 2.0 device flow: it returns a verification link, a user code,
+  and a scannable QR, and `login-resume` settles both halves in one call. The
+  credentials are minted by the authorization and sealed in the encrypted store,
+  so nothing is copied out of a developer console. No browser is launched — the
+  link is handed back for a human to open, the same way the QR image is. Use
+  `login --skip-getnote` for content only, and `--oauth-client-id` to authorize
+  through your own registered application. The note half never blocks the
+  content half: an authorization that expires or cannot start still leaves
+  `login-resume` succeeding with `getnote.authorized: false`.
+- `status` now reports the GetNote credential state alongside the Dedao session,
+  so one call answers what the tool is authenticated for. `getnote auth status`
+  remains for the note-only workflow.
+- `logout` now clears the stored GetNote credentials as well as the Dedao
+  session: it means "this machine no longer holds my credentials". The dry-run
+  preview names both deletions, the confirmation token is bound to both, and
+  credentials supplied through `GETNOTE_API_KEY` / `GETNOTE_CLIENT_ID` are
+  reported as still active rather than counted as removed. `getnote auth logout`
+  remains for clearing only the note credentials, and `logout --keep-getnote`
+  signs out of Dedao while leaving note access in place, so switching Dedao
+  accounts does not cost a separate authorization. The confirmation token is
+  bound to the scope in both directions.
 
 ## [1.0.0] - 2026-08-09
 

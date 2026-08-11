@@ -61,14 +61,16 @@ PowerShell 使用 `$env:NAME = "value"` 设置同样的环境变量。真实密�
 | 搜索 | `search`、`search-type`、`search-suggest`、`search-hot` | 搜索已购内容或指定范围。 |
 | 发现 | `discover`、`labels`、`label-content`、`free`、`live`、`channel`、`channel-topic`、`channel-articles`、`topics`、`topic`、`note` | 浏览知识城邦、标签、免费资源与直播。 |
 | GetNote | `getnote auth`、`getnote save`、`getnote notes`、`getnote note`、`getnote search`、`getnote tag`、`getnote kbs`、`getnote kb` | 安全保存 GetNote 凭据；读取、搜索、写入、打标签、分享和整理笔记。 |
-| 会话 | `login`、`login-resume`、`logout`、`status` | 扫码登录需要人参与；两步配方见 Skill。 |
+| 会话 | `login`、`login-resume`、`logout`、`status` | 扫码登录需要人参与；两步配方见 Skill。`status` 同时报告得到会话与 GetNote 凭据，`logout` 一并清除两者，加 `--keep-getnote` 则只登出得到。 |
 | 自描述 | `reference`、`context`、`doctor`、`changelog`、`update` | 用实时能力和版本变化引导 Agent。 |
 
 README 只做地图，不做完整手册。Agent 在执行任务命令前，应调用 `dedao-cli reference --compact` 获取准确的 flags、schemas、权限、退出码和错误码。
 
 ## GetNote 配置与写入
 
-从 GetNote 获取 API key 和 client ID，然后把它们保存到与得到会话相同的加密凭据系统中。GetNote 文件位于独立的 `getnote/` 子目录，不与得到 cookie 混用。
+`dedao-cli login` 在扫码登录得到的同一次操作里一并完成笔记授权：返回一个链接和一个验证码，由人确认后，`login-resume` 自动换取并保存凭据。不需要去开放平台复制粘贴，也不会启动浏览器 —— 链接和可扫的二维码都交回给人来操作。GetNote 文件位于独立的 `getnote/` 子目录，不与得到 cookie 混用。
+
+`getnote auth login --api-key-stdin` 保留给 CI 和离线场景，那里没有人能完成授权。
 
 `context.data.credentials.getnote` 会分别报告两个值来自环境变量还是加密存储（包括混合配置）。`doctor` 只有在完成一次有界、只读的请求后，才会把已配置的 GetNote 凭据标记为有效。
 

@@ -29,6 +29,37 @@ sends. Only the live smoke can, which is why it is described in detail here.
 ## Running the live smoke
 
 ```bash
+npm run live-smoke                       # needs a signed-in account; never runs a write
+npm run live-smoke -- --bin ./dedao-cli  # against a locally built binary
+```
+
+The script reads the command list and the declared `output_schema` from
+`reference`, harvests real identifiers from listings rather than inventing them,
+runs every read command it can reach, and fails when a payload carries a field
+the contract does not declare. A declared field that is absent is reported but
+does not fail: pagination and truncation fields appear only when the page
+boundary is known. `E_NOT_FOUND`, `E_FORBIDDEN`, and `E_RATE_LIMITED` are
+answers, not faults, and are recorded as such.
+
+It writes `live-smoke-report.json` — command names, outcomes, and field names
+only, with no identifiers and no account content, so the report is safe to keep
+with a release. It is gitignored: the script is the reproducible part, a report
+is one run's evidence.
+
+Its first runs found four contract defects that every mock test had passed: a
+pagination flag declared under a name the service does not use, a field declared
+that the service never sends, a payload that invited a reader to report the
+publisher's words as the user's, and one command whose declared shape had no
+field in common with the real one.
+
+What it does not cover, and why `level` is still `beta`: the nine GetNote write
+commands are never run, so no command that changes a person's data has ever been
+exercised against the live service. Covering them needs the disposable-note
+procedure below.
+
+## Running the live smoke by hand
+
+```bash
 dedao-cli status --compact               # confirm the session still authenticates
 dedao-cli reference --compact            # read output_schema.fields per command
 

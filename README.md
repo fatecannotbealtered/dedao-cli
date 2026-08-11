@@ -61,14 +61,16 @@ Worst-case risk tier: **T1** - the tool holds account credentials and can make e
 | Search | `search`, `search-type`, `search-suggest`, `search-hot` | Search owned content or a named scope. |
 | Discovery | `discover`, `labels`, `label-content`, `free`, `live`, `channel`, `channel-topic`, `channel-articles`, `topics`, `topic`, `note` | Browse 知识城邦, labels, free resources, and live sessions. |
 | GetNote | `getnote auth`, `getnote save`, `getnote notes`, `getnote note`, `getnote search`, `getnote tag`, `getnote kbs`, `getnote kb` | Store GetNote credentials securely; read, search, write, tag, share, and organize notes. |
-| Session | `login`, `login-resume`, `logout`, `status` | QR login needs a human; see the Skill for the two-step recipe. |
+| Session | `login`, `login-resume`, `logout`, `status` | QR login needs a human; see the Skill for the two-step recipe. `status` reports both the Dedao session and the GetNote credentials; `logout` clears both, or only the Dedao half with `--keep-getnote`. |
 | Self-description | `reference`, `context`, `doctor`, `changelog`, `update` | Bootstrap an Agent with live capabilities and version deltas. |
 
 The README is intentionally a map, not the full manual. Agents should call `dedao-cli reference --compact` for exact flags, schemas, permissions, exit codes, and error codes before executing task commands.
 
 ## GetNote setup and writes
 
-Get an API key and client ID from GetNote, then store them in the same encrypted credential system as the Dedao session. The GetNote files live in the isolated `getnote/` subdirectory and are never mixed with Dedao cookies.
+`dedao-cli login` authorizes notes in the same pass as the Dedao QR scan: it returns a link and a user code, the person approves them, and `login-resume` mints and stores the credentials. Nothing is copied out of a developer console, and no browser is launched — the link and a scannable QR are handed back for a human to act on. The GetNote files live in the isolated `getnote/` subdirectory and are never mixed with Dedao cookies.
+
+`getnote auth login --api-key-stdin` remains for CI and offline setup, where no human can approve an authorization.
 
 `context.data.credentials.getnote` reports whether each value comes from the
 environment or encrypted store (including a mixed setup). `doctor` makes one

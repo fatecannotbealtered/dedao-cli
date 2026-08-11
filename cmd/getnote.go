@@ -119,6 +119,40 @@ func loadGetnoteStoredCredential(store *secret.Store, name string) ([]byte, erro
 	return value, nil
 }
 
+// getnoteEnvironmentConfigured reports whether both GetNote values come from the
+// environment. Nothing local can remove those, so logout reports them instead of
+// counting them as deleted.
+func getnoteEnvironmentConfigured() bool {
+	return strings.TrimSpace(os.Getenv("GETNOTE_API_KEY")) != "" &&
+		strings.TrimSpace(os.Getenv("GETNOTE_CLIENT_ID")) != ""
+}
+
+// getnoteStoredCredentials opens the GetNote store and reports what it holds.
+// `logout` and `getnote auth logout` delete the same pair, so they read it
+// through one function rather than two copies that could drift apart.
+func (a *application) getnoteStoredCredentials() (
+	store *secret.Store, stateDir string, stored bool, fingerprint string, err error,
+) {
+	stateDir, err = a.getnoteStateDir()
+	if err != nil {
+		return nil, "", false, "", output.WrapError("E_CONFIG",
+			"could not resolve GetNote state directory", err, nil)
+	}
+	store = secret.New(stateDir)
+	apiKey, err := loadGetnoteStoredCredential(store, getnoteAPIKeySecret)
+	if err != nil {
+		return nil, stateDir, false, "", output.WrapError("E_CONFIG",
+			"could not read the stored GetNote API key", err, nil)
+	}
+	clientID, err := loadGetnoteStoredCredential(store, getnoteClientIDSecret)
+	if err != nil {
+		return nil, stateDir, false, "", output.WrapError("E_CONFIG",
+			"could not read the stored GetNote client ID", err, nil)
+	}
+	return store, stateDir, len(apiKey) > 0 || len(clientID) > 0,
+		getnoteCredentialFingerprint(string(apiKey), string(clientID)), nil
+}
+
 func (a *application) getnoteClient() (*getnoteapi.Client, string, error) {
 	client, stateDir, _, _, err := a.getnoteClientWithCredentials()
 	return client, stateDir, err
@@ -169,8 +203,16 @@ func (a *application) getnoteAuthCommand() *cobra.Command {
 			if strings.TrimSpace(clientID) == "" {
 				clientID = strings.TrimSpace(os.Getenv("GETNOTE_CLIENT_ID"))
 			}
-			if apiKey == "" || clientID == "" {
-				return output.NewError("E_VALIDATION", "--api-key and --client-id are required (or set GETNOTE_API_KEY and GETNOTE_CLIENT_ID)", nil)
+			if strings.TrimSpace(clientID) == "" {
+				// The client id names the application, not the account, and
+				// carries no secret. Demanding it made this path harder than the
+				// published client's, which falls back to the same value -- so
+				// only the API key, the part that is actually yours, is required.
+				clientID = getnoteapi.DeviceClientID
+			}
+			if apiKey == "" {
+				return output.NewError("E_VALIDATION",
+					"--api-key is required (or set GETNOTE_API_KEY)", nil)
 			}
 			stateDir, err := a.getnoteStateDir()
 			if err != nil {
@@ -212,24 +254,14 @@ func (a *application) getnoteAuthCommand() *cobra.Command {
 			if dryRun && confirm != "" {
 				return output.NewError("E_USAGE", "--dry-run and --confirm cannot be used together", nil)
 			}
-			stateDir, err := a.getnoteStateDir()
+			store, stateDir, stored, fingerprint, err := a.getnoteStoredCredentials()
 			if err != nil {
-				return output.WrapError("E_CONFIG", "could not resolve GetNote state directory", err, nil)
+				return err
 			}
-			store := secret.New(stateDir)
-			apiKey, err := loadGetnoteStoredCredential(store, getnoteAPIKeySecret)
-			if err != nil {
-				return output.WrapError("E_CONFIG", "could not read the stored GetNote API key", err, nil)
-			}
-			clientID, err := loadGetnoteStoredCredential(store, getnoteClientIDSecret)
-			if err != nil {
-				return output.WrapError("E_CONFIG", "could not read the stored GetNote client ID", err, nil)
-			}
-			stored := len(apiKey) > 0 || len(clientID) > 0
-			environmentActive := strings.TrimSpace(os.Getenv("GETNOTE_API_KEY")) != "" && strings.TrimSpace(os.Getenv("GETNOTE_CLIENT_ID")) != ""
+			environmentActive := getnoteEnvironmentConfigured()
 			payload := map[string]any{
 				"stored":                 stored,
-				"credential_fingerprint": getnoteCredentialFingerprint(string(apiKey), string(clientID)),
+				"credential_fingerprint": fingerprint,
 			}
 			if dryRun {
 				token, expires, err := getnoteConfirmToken(stateDir, "dedao-cli getnote auth logout", payload, payload)

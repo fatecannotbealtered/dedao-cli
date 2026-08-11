@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,13 +44,75 @@ type oauthResponse struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// csrfCookie reads the token the site sets on any page load.
+func (c *Client) csrfCookie() string {
+	if c.http.Jar == nil {
+		return ""
+	}
+	base, err := url.Parse(c.baseURL + "/")
+	if err != nil {
+		return ""
+	}
+	for _, cookie := range c.http.Jar.Cookies(base) {
+		if cookie.Name == "csrfToken" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
+// postForm sends one form-encoded request. The token endpoint is the only caller:
+// everything else on this host takes JSON.
+func (c *Client) postForm(ctx context.Context, path string, form url.Values) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.baseURL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/json, text/plain, */*")
+	request.Header.Set("User-Agent", userAgent)
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", c.baseURL)
+	request.Header.Set("Referer", c.baseURL+"/")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= 400 {
+		return nil, &APIError{
+			StatusCode: response.StatusCode,
+			Method:     http.MethodPost,
+			Path:       path,
+			Message: fmt.Sprintf("POST %s returned HTTP %d: %s", path, response.StatusCode,
+				strings.TrimSpace(string(payload))),
+		}
+	}
+	return payload, nil
+}
+
 // oauthAccessToken fetches the anonymous token the QR endpoints require. It
 // deliberately does not go through requireAuth: this is the pre-login path.
 func (c *Client) oauthAccessToken(ctx context.Context) (string, error) {
+	// This GET is what mints the CSRF cookie; the POST below is refused without
+	// it.
 	if _, err := c.do(ctx, http.MethodGet, "/", nil, nil); err != nil {
 		return "", err
 	}
-	raw, err := c.do(ctx, http.MethodPost, "/loginapi/getAccessToken", nil, nil)
+	csrf := c.csrfCookie()
+	if csrf == "" {
+		return "", &APIError{Method: "GET", Path: "/",
+			Message: "the site did not set a CSRF cookie, so login cannot start"}
+	}
+	// The token goes in the body as `_csrf`, not in a header. Measured against
+	// the live endpoint: every `x-csrf-token`/`x-xsrf-token` spelling answers
+	// "invalid csrf token", and the form field answers 200. Sending nothing at
+	// all answers a bare 403, which is what made this look like an IP block.
+	raw, err := c.postForm(ctx, "/loginapi/getAccessToken", url.Values{"_csrf": {csrf}})
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +280,11 @@ func (c *Client) doWithToken(ctx context.Context, method, path, token string, bo
 	request.Header.Set("xi-dt", "web")
 	request.Header.Set("Referer", c.baseURL+"/")
 	if token != "" {
-		request.Header.Set("xi-oauth-token", token)
+		// The name the login SDK uses. `xi-oauth-token` -- the spelling this
+		// carried before -- is simply ignored, and the endpoint then reports
+		// `Invalid access token ''`: an empty token, not a rejected one. That
+		// emptiness is the tell, and it is why this read as a 403 wall.
+		request.Header.Set("X-Oauth-Access-Token", token)
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")

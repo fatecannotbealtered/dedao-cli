@@ -124,26 +124,36 @@ session reports `configured: true, valid: false` — treat that as logged out.
 
 ## Logging in requires a human
 
-Login is a QR scan, so the CLI never blocks on it and never polls on the user's
-behalf.
+One login covers content and notes. Both halves need a person, so the CLI never
+blocks on either and never polls on the user's behalf.
 
 **STOP CHECKPOINT — a person must act.**
 
 ```bash
-dedao-cli login --compact            # exits 9, E_HUMAN_REQUIRED, details.qr_path
+dedao-cli login --compact            # exits 9, E_HUMAN_REQUIRED
 ```
 
-Show the image at `error.details.qr_path` using an image/attachment tool. A bare
-file path is useless — the user has to scan it with their phone. Then stop and
-wait for them to say they scanned it.
+Relay both approvals in one message, then stop:
+
+- `error.details.qr_path` — show the image with an image/attachment tool. A bare
+  file path is useless; the user scans it in the Dedao app.
+- `error.details.getnote` — when `action` is `authorize_getnote`, give the user
+  `verification_uri` to open and `user_code` to confirm on that page. There is
+  also a scannable `qr_path` for it. Never open the link yourself.
 
 ```bash
-dedao-cli login-resume --compact     # exit 0 once scanned
+dedao-cli login-resume --compact     # exit 0 once both are approved
 ```
 
-`E_HUMAN_REQUIRED` again means they have not scanned yet: relay again and wait.
-`E_CONFLICT` means the code expired — run `login` for a fresh one. Never loop on
+`E_HUMAN_REQUIRED` again means at least one half is still outstanding; read
+`error.details.getnote.pending` to see which, relay again, and wait. `E_CONFLICT`
+means the Dedao code expired — run `login` for a fresh one. Never loop on
 `login-resume` automatically.
+
+The note half never holds the content half hostage: if it expires or cannot
+start, `login-resume` still succeeds and reports `getnote.authorized: false`.
+Use `login --skip-getnote` when the user only wants content. `getnote auth login
+--api-key-stdin` remains for CI and offline setup, where no human can approve.
 
 ## Typical scripts
 
@@ -220,17 +230,55 @@ user and wait for explicit approval before confirming it.
 
 ## Logging out
 
-Logout deletes local credentials, so preview it and use the returned token:
+`logout` clears both the Dedao session and the stored GetNote credentials. It
+deletes local credentials, so preview it and use the returned token:
 
 **STOP CHECKPOINT — logout deletes credentials.** Show the preview and stop;
-confirm only after the user explicitly approves removing them.
+confirm only after the user explicitly approves removing them. The preview names
+every credential set that will be deleted; read it out rather than summarizing.
 
 ```bash
 dedao-cli logout --dry-run --compact
 dedao-cli logout --confirm <confirm_token> --compact
+```
+
+Use `logout --keep-getnote` to sign out of Dedao while leaving note access in
+place — switching Dedao accounts should not cost a separate authorization. The
+confirmation token is bound to the scope, so a token minted with the flag cannot
+execute without it, or the other way round.
+
+Use `getnote auth logout` when only the note credentials should go and the Dedao
+session should stay:
+
+```bash
 dedao-cli getnote auth logout --dry-run --compact
 dedao-cli getnote auth logout --confirm <confirm_token> --compact
 ```
+
+`getnote_environment_credentials_active: true` in either result means
+`GETNOTE_API_KEY` / `GETNOTE_CLIENT_ID` are set in the environment. No local
+deletion removes those; say so rather than reporting a clean logout.
+
+## Two kinds of "notes"
+
+They are different products and different credentials. Route on which one the
+user means before reaching for a command.
+
+| The user means | Command | Needs |
+|---|---|---|
+| Notes they wrote in the Dedao app on a course article | `article-notes <article-enid>`, `note <note-id>` | the Dedao session |
+| Get笔记 / biji.com — knowledge bases, semantic search, saving notes | `getnote *` | the note authorization from `login` |
+
+`article-notes` returns both the account's writing and Dedao's own material:
+
+- `notes` — what this person wrote. Empty means they wrote nothing here.
+- `article_point` — **Dedao's editorial summary of the article.** It arrives
+  whether or not the person highlighted anything.
+- `account_wrote_point` — `false` means `article_point` is the publisher's, not
+  the user's.
+
+Never present `article_point` as the user's note. When `notes` is empty, say they
+have no notes on that article, even though `article_point` has text in it.
 
 ## Boundaries
 

@@ -26,6 +26,15 @@ type logoutConfirmPayload struct {
 	CredentialConfigured  bool   `json:"credential_configured"`
 	CredentialFingerprint string `json:"credential_fingerprint"`
 	PermissionContext     string `json:"permission_context"`
+	// The GetNote half is part of the payload so the token cannot authorise a
+	// preview of one credential set and then delete a different one. When the
+	// note credentials are being kept they are left out of the fingerprint --
+	// binding to something this run will not touch would turn an unrelated
+	// re-authorization into a spurious conflict -- and `KeepGetnote` records the
+	// narrower scope so a token minted for one cannot execute the other.
+	KeepGetnote        bool   `json:"keep_getnote"`
+	GetnoteConfigured  bool   `json:"getnote_configured"`
+	GetnoteFingerprint string `json:"getnote_fingerprint"`
 }
 
 func logoutPayload(stateDir string, configured bool, fingerprint string) logoutConfirmPayload {

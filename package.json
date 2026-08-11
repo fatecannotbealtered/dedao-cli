@@ -17,7 +17,8 @@
   "scripts": {
     "version": "node scripts/sync-version.js",
     "check-version": "node scripts/check-version.js",
-    "test-release-scripts": "node scripts/release-scripts.test.js"
+    "test-release-scripts": "node scripts/release-scripts.test.js",
+    "live-smoke": "node scripts/live-smoke.js"
   },
   "optionalDependencies": {
     "@fateforge/dedao-cli-darwin-arm64": "1.1.0",
