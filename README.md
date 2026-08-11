@@ -156,7 +156,7 @@ make fmt
 npm ci --ignore-scripts
 ```
 
-Release gate: every public behavior documented in README, Skill, `reference`, `--help`, `context`, `doctor`, or `changelog` must have command-level tests. The target is **Functional Contract Coverage = 100%**; numeric line coverage is secondary. `dedao-cli reference` reports `release_readiness.level`; without recorded live smoke/E2E evidence, the tool must declare `beta`, not `stable`.
+Release gate: every public behavior documented in README, Skill, `reference`, `--help`, `context`, `doctor`, or `changelog` must have command-level tests. The target is **Functional Contract Coverage = 100%**; numeric line coverage is secondary. `dedao-cli reference` reports `release_readiness.level`; without recorded live smoke/E2E evidence, the tool must declare `beta`, not `stable`. Run `npm run live-smoke -- --include-writes` against a signed-in account before a release; see [docs/E2E.md](docs/E2E.md).
 
 ## Links
 

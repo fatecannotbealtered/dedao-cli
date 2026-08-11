@@ -20,8 +20,8 @@ remain the primary exposure risk.
 | Mock upstream | every command's success, bad-args, auth-failure, and upstream-failure paths against an in-process HTTP server | none | yes |
 | Live smoke | every declared command against the real service with a signed-in account | yes | **no** |
 
-Only the last needs a real account, and it is the reason
-`release_readiness.level` is `beta`. Note the mock layer returns **synthetic
+Only the last needs a real account, and it is what carries
+`release_readiness.level` to `stable`. Note the mock layer returns **synthetic
 payload shapes**: it proves the envelope, the error mapping, and the exit codes,
 but it cannot prove that a declared `output_schema` matches what Dedao really
 sends. Only the live smoke can, which is why it is described in detail here.
@@ -46,16 +46,27 @@ only, with no identifiers and no account content, so the report is safe to keep
 with a release. It is gitignored: the script is the reproducible part, a report
 is one run's evidence.
 
-Its first runs found four contract defects that every mock test had passed: a
-pagination flag declared under a name the service does not use, a field declared
-that the service never sends, a payload that invited a reader to report the
-publisher's words as the user's, and one command whose declared shape had no
-field in common with the real one.
+`--include-writes` additionally runs the GetNote mutation chain -- save, update,
+share, tag add/remove, knowledge-base add/remove, delete -- through the two-step
+confirmation gate against one disposable note created for that run and deleted
+before it ends, by marker lookup if its id could not be read. It is opt-in:
+nobody should have their notes written to because they ran a smoke test. A
+release candidate needs one run with it. `getnote kb create` stays out because
+GetNote has no command to delete a knowledge base, so a run could not clean up
+after itself.
 
-What it does not cover, and why `level` is still `beta`: the nine GetNote write
-commands are never run, so no command that changes a person's data has ever been
-exercised against the live service. Covering them needs the disposable-note
-procedure below.
+Its runs found seven contract defects that every mock test had passed, including
+two permanent conditions reported as retryable faults, a payload that invited a
+reader to present the publisher's words as the user's, and two commands whose
+declared shape had almost nothing in common with the real one.
+
+What it covers that nothing else can: reading a chapter of an owned ebook, which
+exercises the AES decryption and the glyph reassembly, and saving an owned
+audiobook, which exercises the HLS segment decryption. Both were taken on trust
+until an account that owns something ran them.
+
+Not run at all: `channel-topic` and `note`, because no listing this account can
+read publishes an identifier for them.
 
 ## Running the live smoke by hand
 

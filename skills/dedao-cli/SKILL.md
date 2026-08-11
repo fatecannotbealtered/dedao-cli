@@ -1,10 +1,10 @@
 ---
 name: dedao-cli
-version: "1.1.0"
+version: "1.0.0"
 description: "Reads a Dedao (得到) account's owned learning content and manages notes through GetNote's official OpenAPI. Use for 得到/Dedao libraries, courses, ebooks, audiobooks, article text, comments, personal notes, topics and discovery; also use for GetNote/得到笔记 requests to save, list, read, search, update, delete, tag, share, or organize notes in knowledge bases. Dedao remains read-only. Every GetNote write requires dry-run then a payload-bound confirmation token."
 license: MIT
 user-invocable: true
-metadata: {"requires":{"bins":["dedao-cli"],"min_version":"1.1.0"}}
+metadata: {"requires":{"bins":["dedao-cli"],"min_version":"1.0.0"}}
 ---
 
 # dedao-cli

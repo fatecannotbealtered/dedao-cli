@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-08-10
+## [1.0.0] - 2026-08-11
 
 ### Added
 
@@ -43,129 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   7 of them writes, and it names the 4 it cannot reach.
 
 
-### Security
-
-- Every GetNote upstream write now requires a dry-run preview and a five-minute,
-  single-use confirmation token bound to the exact command, request payload,
-  credential context, and available target version. Changed arguments,
-  credentials, target state, expired tokens, and replayed tokens fail before
-  any mutation request is sent.
-- GetNote API keys and client IDs use the existing AES-256-GCM secret store in
-  an isolated state subdirectory; credentials are never written to GetNote's
-  legacy plaintext config format or emitted in command output.
-- Structured upstream error details are preserved under an explicitly
-  `_untrusted` field while the stable top-level error message remains local.
-
-### Fixed
-
-- `ebook`, `audiobook-agency` and `topic` each declared a shape with little or
-  nothing in common with the real one: `ebook` promised a nested
-  `book_info`/`price_info` record where the service sends 51 flat fields, and
-  the other two promised envelopes that never arrive. All three ran against the
-  live service for the first time here.
-- Business code 4000 -- the ebook page endpoint's "this chapter has no body",
-  which front matter such as a copyright page returns -- was a retryable
-  `E_SERVER`. It is permanent, so it is now `E_NOT_FOUND`.
-- The mock upstream now sets the CSRF cookie, requires `_csrf`, and checks the
-  token header name. It did none of these, which is why it could not fail while
-  the client got all three wrong.
-- Login worked for nobody. Two independent faults on the pre-QR path, each
-  found by reproducing the call outside this tool: `/loginapi/getAccessToken`
-  wants the site's `csrfToken` cookie echoed back as the form field `_csrf`, not
-  as any spelling of an `x-csrf-token` header, and sending none at all answers a
-  bare 403 that reads like an IP block; and the QR endpoints take the token in
-  `X-Oauth-Access-Token`, while this build sent `xi-oauth-token`, which the
-  service ignores before reporting `Invalid access token ''` -- an empty token,
-  not a rejected one. The mock layer cannot see either: it has no cookies, no
-  CSRF, and does not check header names.
-- A permission wall no longer arrives as a retryable service fault. Dedao
-  answers business code 90015 with "无权访问" for content the account has no
-  subscription to, and 5218 for an audiobook product that does not exist; both
-  fell through to `E_SERVER`, which is retryable, so an agent would have retried
-  a wall that never opens and an id that will never resolve. They are now
-  `E_FORBIDDEN` and `E_NOT_FOUND`. Each was reproduced against two different
-  inputs, and classified by code rather than by message text.
-- `ebook` declared a nested `book_info`/`price_info` shape. The service answers
-  with a flat record of 51 fields, of which only `author_info` overlapped: an
-  agent reading `book_info` found nothing, every time. `audiobook` was missing
-  `quality`.
-
-- `label-content` declared a shape with no field in common with the real one.
-  The service returns `product_list`, `navigation_list`, `current_enid`,
-  `page_id`, `page_size`, `request_id`, and `is_more`; the contract declared
-  `list`, `has_more`, `is_more`, `count`, and `page`, of which only `is_more`
-  ever arrives.
-- `article-notes` no longer invites a caller to report Dedao's words as the
-  user's. The point endpoint returns Dedao's own summary of an article whether
-  or not the account highlighted anything; sitting under the key `point` beside
-  the account's `notes`, it read as the person's own writing. It is now
-  `article_point`, with the upstream ownership flag surfaced as
-  `account_wrote_point`. Measured against the live service, where editorial text
-  arrives with the flag set to 0.
-- `comments` declares the fields the service actually returns: `is_more`, the
-  service's own pagination flag, and `article`, which echoes what was asked
-  about. Neither was declared. `page` was declared and never arrives. The mock
-  layer answers with synthetic shapes, so only a live read could catch this.
-- `course` declares `count` and `intro_article`, and no longer declares
-  `now_label`, which the service never sends.
-- An unauthorized `getnote` command now points at `dedao-cli login`, which
-  authorizes note access and mints the credentials, instead of the manual
-  API-key path. That path is still named as the unattended option.
-
-### Changed
-
-- The T1 threat model now includes explicitly confirmed GetNote writes while
-  preserving the existing read-only boundary for every Dedao endpoint.
-- `login` now authorizes GetNote in the same pass as the Dedao QR scan, using
-  GetNote's OAuth 2.0 device flow: it returns a verification link, a user code,
-  and a scannable QR, and `login-resume` settles both halves in one call. The
-  credentials are minted by the authorization and sealed in the encrypted store,
-  so nothing is copied out of a developer console. No browser is launched — the
-  link is handed back for a human to open, the same way the QR image is. Use
-  `login --skip-getnote` for content only, and `--oauth-client-id` to authorize
-  through your own registered application. The note half never blocks the
-  content half: an authorization that expires or cannot start still leaves
-  `login-resume` succeeding with `getnote.authorized: false`.
-- `status` now reports the GetNote credential state alongside the Dedao session,
-  so one call answers what the tool is authenticated for. `getnote auth status`
-  remains for the note-only workflow.
-- `logout` now clears the stored GetNote credentials as well as the Dedao
-  session: it means "this machine no longer holds my credentials". The dry-run
-  preview names both deletions, the confirmation token is bound to both, and
-  credentials supplied through `GETNOTE_API_KEY` / `GETNOTE_CLIENT_ID` are
-  reported as still active rather than counted as removed. `getnote auth logout`
-  remains for clearing only the note credentials, and `logout --keep-getnote`
-  signs out of Dedao while leaving note access in place, so switching Dedao
-  accounts does not cost a separate authorization. The confirmation token is
-  bound to the scope in both directions.
-
-## [1.0.0] - 2026-08-09
-
-### Fixed
-
-- JSON output now canonicalizes every object key to snake_case, converts
-  semantic timestamps to RFC3339 UTC, preserves incomplete display text under
-  `*_label`, and rejects normalization collisions instead of silently dropping
-  one value.
-- Logout confirmation tokens now cover legacy plaintext credential files as
-  well as the encrypted session, so adding or replacing any credential target
-  after dry-run returns `E_CONFLICT` without deleting it.
-- README and security guidance now document the required two-step confirmation
-  flow for the destructive local `logout` command.
-
-### Security
-
-- Logout confirmation tokens are bound to an irreversible fingerprint of the
-  exact stored session, so replacing credentials after dry-run invalidates the
-  old token before anything is deleted.
-- `doctor` gained a `plaintext_credentials` check, and `logout` now removes
-  every plaintext credential file it knows about rather than only the one the
-  current build writes. A state directory carried over from the reference
-  implementation still held the session, the browser storage state, and a
-  pending QR login in the clear; nothing read them any more, so they were pure
-  exposure and neither command would have cleared them.
-
-### Added
 
 - A package.json-backed runtime version source now keeps `--version`, self-
   description, doctor, changelog, and update metadata aligned.
@@ -237,12 +114,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The T1 threat model now includes explicitly confirmed GetNote writes while
+  preserving the existing read-only boundary for every Dedao endpoint.
+- `login` now authorizes GetNote in the same pass as the Dedao QR scan, using
+  GetNote's OAuth 2.0 device flow: it returns a verification link, a user code,
+  and a scannable QR, and `login-resume` settles both halves in one call. The
+  credentials are minted by the authorization and sealed in the encrypted store,
+  so nothing is copied out of a developer console. No browser is launched — the
+  link is handed back for a human to open, the same way the QR image is. Use
+  `login --skip-getnote` for content only, and `--oauth-client-id` to authorize
+  through your own registered application. The note half never blocks the
+  content half: an authorization that expires or cannot start still leaves
+  `login-resume` succeeding with `getnote.authorized: false`.
+- `status` now reports the GetNote credential state alongside the Dedao session,
+  so one call answers what the tool is authenticated for. `getnote auth status`
+  remains for the note-only workflow.
+- `logout` now clears the stored GetNote credentials as well as the Dedao
+  session: it means "this machine no longer holds my credentials". The dry-run
+  preview names both deletions, the confirmation token is bound to both, and
+  credentials supplied through `GETNOTE_API_KEY` / `GETNOTE_CLIENT_ID` are
+  reported as still active rather than counted as removed. `getnote auth logout`
+  remains for clearing only the note credentials, and `logout --keep-getnote`
+  signs out of Dedao while leaving note access in place, so switching Dedao
+  accounts does not cost a separate authorization. The confirmation token is
+  bound to the scope in both directions.
+
+
+
 - `reference.error_codes` exposes the canonical E_* bindings while
   `reference.exit_codes` exposes the numeric exit-meaning table from
   `contract.json`; local credential deletion documents the required
   dry-run/confirm flow.
 
 ### Fixed
+
+- `ebook`, `audiobook-agency` and `topic` each declared a shape with little or
+  nothing in common with the real one: `ebook` promised a nested
+  `book_info`/`price_info` record where the service sends 51 flat fields, and
+  the other two promised envelopes that never arrive. All three ran against the
+  live service for the first time here.
+- Business code 4000 -- the ebook page endpoint's "this chapter has no body",
+  which front matter such as a copyright page returns -- was a retryable
+  `E_SERVER`. It is permanent, so it is now `E_NOT_FOUND`.
+- The mock upstream now sets the CSRF cookie, requires `_csrf`, and checks the
+  token header name. It did none of these, which is why it could not fail while
+  the client got all three wrong.
+- Login worked for nobody. Two independent faults on the pre-QR path, each
+  found by reproducing the call outside this tool: `/loginapi/getAccessToken`
+  wants the site's `csrfToken` cookie echoed back as the form field `_csrf`, not
+  as any spelling of an `x-csrf-token` header, and sending none at all answers a
+  bare 403 that reads like an IP block; and the QR endpoints take the token in
+  `X-Oauth-Access-Token`, while this build sent `xi-oauth-token`, which the
+  service ignores before reporting `Invalid access token ''` -- an empty token,
+  not a rejected one. The mock layer cannot see either: it has no cookies, no
+  CSRF, and does not check header names.
+- A permission wall no longer arrives as a retryable service fault. Dedao
+  answers business code 90015 with "无权访问" for content the account has no
+  subscription to, and 5218 for an audiobook product that does not exist; both
+  fell through to `E_SERVER`, which is retryable, so an agent would have retried
+  a wall that never opens and an id that will never resolve. They are now
+  `E_FORBIDDEN` and `E_NOT_FOUND`. Each was reproduced against two different
+  inputs, and classified by code rather than by message text.
+- `ebook` declared a nested `book_info`/`price_info` shape. The service answers
+  with a flat record of 51 fields, of which only `author_info` overlapped: an
+  agent reading `book_info` found nothing, every time. `audiobook` was missing
+  `quality`.
+
+- `label-content` declared a shape with no field in common with the real one.
+  The service returns `product_list`, `navigation_list`, `current_enid`,
+  `page_id`, `page_size`, `request_id`, and `is_more`; the contract declared
+  `list`, `has_more`, `is_more`, `count`, and `page`, of which only `is_more`
+  ever arrives.
+- `article-notes` no longer invites a caller to report Dedao's words as the
+  user's. The point endpoint returns Dedao's own summary of an article whether
+  or not the account highlighted anything; sitting under the key `point` beside
+  the account's `notes`, it read as the person's own writing. It is now
+  `article_point`, with the upstream ownership flag surfaced as
+  `account_wrote_point`. Measured against the live service, where editorial text
+  arrives with the flag set to 0.
+- `comments` declares the fields the service actually returns: `is_more`, the
+  service's own pagination flag, and `article`, which echoes what was asked
+  about. Neither was declared. `page` was declared and never arrives. The mock
+  layer answers with synthetic shapes, so only a live read could catch this.
+- `course` declares `count` and `intro_article`, and no longer declares
+  `now_label`, which the service never sends.
+- An unauthorized `getnote` command now points at `dedao-cli login`, which
+  authorizes note access and mints the credentials, instead of the manual
+  API-key path. That path is still named as the unattended option.
+
+
+- JSON output now canonicalizes every object key to snake_case, converts
+  semantic timestamps to RFC3339 UTC, preserves incomplete display text under
+  `*_label`, and rejects normalization collisions instead of silently dropping
+  one value.
+- Logout confirmation tokens now cover legacy plaintext credential files as
+  well as the encrypted session, so adding or replacing any credential target
+  after dry-run returns `E_CONFLICT` without deleting it.
+- README and security guidance now document the required two-step confirmation
+  flow for the destructive local `logout` command.
+
 
 - Self-update could never have found its own release. `.goreleaser.yml`
   publishes `<tool>-<version>-<os>-<arch>` but the updater looked for
@@ -309,13 +279,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SECURITY.md` claimed credentials were encrypted at rest with AES-256-GCM.
   They are not: the session is plaintext JSON in the state directory.
 
-### Deprecated
-
-
-### Removed
-
-
 ### Security
+
+- Every GetNote upstream write now requires a dry-run preview and a five-minute,
+  single-use confirmation token bound to the exact command, request payload,
+  credential context, and available target version. Changed arguments,
+  credentials, target state, expired tokens, and replayed tokens fail before
+  any mutation request is sent.
+- GetNote API keys and client IDs use the existing AES-256-GCM secret store in
+  an isolated state subdirectory; credentials are never written to GetNote's
+  legacy plaintext config format or emitted in command output.
+- Structured upstream error details are preserved under an explicitly
+  `_untrusted` field while the stable top-level error message remains local.
+
+
+- Logout confirmation tokens are bound to an irreversible fingerprint of the
+  exact stored session, so replacing credentials after dry-run invalidates the
+  old token before anything is deleted.
+- `doctor` gained a `plaintext_credentials` check, and `logout` now removes
+  every plaintext credential file it knows about rather than only the one the
+  current build writes. A state directory carried over from the reference
+  implementation still held the session, the browser storage state, and a
+  pending QR login in the clear; nothing read them any more, so they were pure
+  exposure and neither command would have cleared them.
+
 
 - `SECURITY.md` no longer claims encryption at rest that is not implemented, and
   no longer describes a self-update signature-verification flow for a tool that

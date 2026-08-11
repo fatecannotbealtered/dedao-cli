@@ -37,9 +37,9 @@ There is a known conflict between official sources: the current
 [GetNote API documentation](https://doc.biji.com/docs/WOxgwObNNiyMHWk1dl0cJqSxnEd)
 show a bare API key in `Authorization`, while the official CLI uses `Bearer`.
 This integration intentionally follows the CLI because that is the client being
-merged. No real GetNote credential was available for a live smoke, so this
-surface remains beta and the discrepancy must be re-verified before declaring
-it stable.
+merged, and the choice has since been exercised against the live service with a
+real credential: the `Bearer` form is accepted, and every GetNote read and write
+command answers through it.
 
 Two shapes worth recording, because they cost time to find:
 
@@ -65,8 +65,10 @@ of these endpoints without notice and owes this project nothing.
 
 ## Re-verifying
 
-There is no automated live gate — that is why `release_readiness.level` is
-`beta`. To re-verify by hand, run each command against the live upstream and
+`npm run live-smoke -- --include-writes` is the automated live gate: it runs
+each command against the real service and fails on any payload carrying a field
+the contract does not declare. To re-verify by hand instead, run each command
+against the live upstream and
 compare the top-level keys of `data` against that command's
 `output_schema.fields` from `reference`. A mismatch in either direction is a
 finding. Note that the mock-upstream tests return synthetic shapes and therefore
