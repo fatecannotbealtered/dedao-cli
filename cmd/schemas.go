@@ -101,7 +101,7 @@ var outputSchemas = map[string]outputSchema{
 			"class_comment_info", "class_reviews", "class_reviews_count",
 			"achievement_detail", "lecturer_dedao_share", "live_info",
 			"live_inner_article_info", "is_show_grading", "show_free_tips",
-			"user_type", "time_now", "count", "intro_article"},
+			"user_type", "time_now", "count", "intro_article", "used_coupon_info"},
 		UntrustedFields: []string{"class_info", "chapter_list", "items", "new_items",
 			"flat_article_list", "class_comment_info", "class_reviews",
 			"lecturer_dedao_share", "intro_article"},
@@ -220,10 +220,16 @@ var outputSchemas = map[string]outputSchema{
 		Fields:          []string{"list", "count", "has_more", "collection_info"},
 		UntrustedFields: []string{"list", "collection_info"},
 	},
+	// Declared as measured. The service answers with the agency record itself,
+	// flat -- not the `detail`/`books` envelope declared here before, of which
+	// neither field ever arrives.
 	"audiobook_agency": {
-		Shape:           "object",
-		Fields:          []string{"detail", "books"},
-		UntrustedFields: []string{"detail", "books"},
+		Shape: "object",
+		Fields: []string{
+			"book_count", "created_at", "id", "id_str", "intro", "name", "one_sentence_summary",
+			"status", "updated_at",
+		},
+		UntrustedFields: []string{"intro", "name", "one_sentence_summary"},
 	},
 	"audiobook_vip": {
 		Shape:  "object",
@@ -237,10 +243,21 @@ var outputSchemas = map[string]outputSchema{
 		Fields:          []string{"list", "count", "has_more"},
 		UntrustedFields: []string{"list"},
 	},
+	// Declared as measured. Like the agency record, the topic arrives flat; the
+	// `detail`/`notes` envelope declared here before never appears.
 	"topic_detail": {
-		Shape:           "object",
-		Fields:          []string{"detail", "notes"},
-		UntrustedFields: []string{"detail", "notes"},
+		Shape: "object",
+		Fields: []string{
+			"create_time", "ddurl", "has_new_notes", "img", "intro", "last_notes_content",
+			"last_notes_id", "last_notes_id_hazy", "last_notes_uid", "last_notes_uid_hazy",
+			"last_update_time", "log_id", "log_type", "name", "notes_count", "notes_topic_id",
+			"presenters", "resources", "share_url", "state", "tag", "top_area", "topic_id_hazy",
+			"topic_id_str", "topmost", "update_time", "user_state", "view_count",
+		},
+		UntrustedFields: []string{
+			"ddurl", "img", "intro", "last_notes_content", "name", "presenters", "resources",
+			"share_url", "tag", "top_area",
+		},
 	},
 	"channel_home": {
 		Shape:           "object",

@@ -165,6 +165,7 @@ func TestBusinessCode_EntitlementWallIsForbiddenNotServerFault(t *testing.T) {
 	}{
 		{90015, "E_FORBIDDEN"},
 		{5218, "E_NOT_FOUND"},
+		{4000, "E_NOT_FOUND"},
 		{104000, "E_NOT_FOUND"},
 		{500000, "E_SERVER"},
 	} {

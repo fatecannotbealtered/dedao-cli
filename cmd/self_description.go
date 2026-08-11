@@ -17,14 +17,16 @@ import (
 
 // releaseReadiness is the machine-readable publish gate (CLI-SPEC §13).
 //
-// It is deliberately `beta`, not `stable`. CLI-SPEC §13's literal bar for
-// `stable` is met -- FCC is 100%, mock-upstream tests pass, and a recorded live
-// smoke of this candidate exists, writes included. What holds it back is what
-// the coverage number cannot say: no run has read a chapter or played a track
-// the account actually owns, so the entitled path through the ebook and
-// audiobook commands is still only proven against mocks.
+// `stable` rests on evidence that exists now, not on a fixture count. FCC is
+// 100%, the mock-upstream tests pass, and a recorded live smoke of this
+// candidate covers 56 of 66 commands against the real service with no
+// undeclared fields -- including the GetNote write chain and, decisively, the
+// two paths that mocks structurally cannot prove: decrypting a chapter of an
+// owned ebook and reassembling its glyphs into ordered text, and decrypting an
+// owned audiobook's HLS stream into a file whose every packet carries the
+// MPEG-TS sync byte. Those two were the last things taken on trust.
 var releaseReadiness = map[string]any{
-	"level":                          "beta",
+	"level":                          "stable",
 	"fcc_required":                   true,
 	"fcc_status":                     "verified",
 	"mock_upstream_required":         true,
@@ -37,20 +39,21 @@ var releaseReadiness = map[string]any{
 	// defects that every mock test had passed. The numbers below say what that
 	// run does and does not cover, because "verified" on its own would read as
 	// more than it is.
-	"live_smoke_covered_commands":       52,
+	"live_smoke_covered_commands":       56,
 	"live_smoke_total_commands":         66,
 	"live_smoke_write_commands_covered": 7,
 	"live_smoke_uncovered_commands": []string{
-		"audiobook-agency", "channel-topic", "note", "topic",
+		"channel-topic", "note",
 	},
 	"reason": "Command-level functional contract coverage and mock-upstream tests pass, and a " +
-		"repeatable live smoke (`npm run live-smoke -- --include-writes`) verifies 52 of 66 " +
-		"commands against the real service with no undeclared fields, including the GetNote write " +
-		"chain against a disposable note that is deleted before the run ends. The ebook and " +
-		"audiobook surfaces are covered through their detail endpoints, which answer for content " +
-		"the account does not own -- the entitlement refusals are part of what is verified. This " +
-		"stays beta because the 4 commands named above still have no live evidence, and because " +
-		"no run has yet exercised reading a chapter or playing a track the account owns.",
+		"repeatable live smoke (`npm run live-smoke -- --include-writes`) covers 56 of 66 commands " +
+		"against the real service with no undeclared fields: the read surface, the GetNote write " +
+		"chain against a disposable note deleted before the run ends, and the entitled paths " +
+		"through an owned ebook and an owned audiobook, which exercise the chapter and stream " +
+		"decryption. 8 commands are never run because they need a human, delete credentials, " +
+		"replace the binary, or would leave residue no run can clean up; `channel-topic` and " +
+		"`note` still have no live evidence because no listing this account can read publishes " +
+		"an identifier for them.",
 	"required_evidence": []string{
 		"functional_contract_coverage_100",
 		"mock_upstream_contract_tests",

@@ -20,11 +20,31 @@ var fakeQRImage = "data:image/png;base64," + base64.StdEncoding.EncodeToString([
 func loginMock(t *testing.T, checkStatus int) *mockUpstream {
 	t.Helper()
 	mock := newMockUpstream(t)
-	mock.handlers["/"] = func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
-	mock.handlers["/loginapi/getAccessToken"] = func(w http.ResponseWriter, _ *http.Request) {
+	// The mock mirrors the real handshake, because the parts it used to leave out
+	// are exactly the parts that were broken in production: the site sets a CSRF
+	// cookie on any page load, the token endpoint refuses a request that does not
+	// echo it back as the form field `_csrf`, and the QR endpoints read the token
+	// from `X-Oauth-Access-Token`. A mock that skips these cannot fail when the
+	// client gets them wrong -- and for a long time it did not.
+	mock.handlers["/"] = func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "csrfToken", Value: "csrf-fixture", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+	}
+	mock.handlers["/loginapi/getAccessToken"] = func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.PostForm.Get("_csrf") != "csrf-fixture" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"missing csrf token"}`))
+			return
+		}
 		_, _ = w.Write([]byte("anon-token"))
 	}
-	mock.handlers["/oauth/api/embedded/qrcode"] = func(w http.ResponseWriter, _ *http.Request) {
+	mock.handlers["/oauth/api/embedded/qrcode"] = func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Oauth-Access-Token") == "" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"errCode": 20005, "errMsg": "Invalid access token ''",
+			})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"errCode": 0,
 			"data":    map[string]any{"qrCodeString": "qr-string-1", "qrCode": fakeQRImage},

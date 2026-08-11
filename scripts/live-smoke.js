@@ -62,7 +62,7 @@ const SKIP = {
   "getnote kb create": "creates a knowledge base upstream",
   "getnote kb add": "mutates a knowledge base upstream",
   "getnote kb remove": "mutates a knowledge base upstream",
-  "audiobook-media": "downloads a media file to disk",
+
   "getnote task": "needs a task id from a write this smoke does not perform",
 };
 
@@ -150,10 +150,6 @@ if (ids.course) {
   const article = firstItem(articles.envelope, "article_list", "list");
   if (article) ids.article = article.enid;
 }
-const ebook = firstItem(run(["library", "ebook", "--page-size", "3"]).envelope, "list");
-if (ebook) ids.ebook = ebook.enid;
-const audiobook = firstItem(run(["library", "audiobook", "--page-size", "3"]).envelope, "list");
-if (audiobook) ids.audiobook = audiobook.enid;
 if (notesAuthorized) {
   const note = firstItem(run(["getnote", "notes", "--limit", "3"]).envelope, "items");
   if (note) ids.getnote = note.note_id || note.id;
@@ -163,13 +159,51 @@ if (notesAuthorized) {
 const label = firstItem(run(["labels", "1"]).envelope, "list");
 if (label && label.enid) ids.label = label.enid;
 
-// The ebook and audiobook commands read a detail record, and a detail record
-// does not require owning the thing: the service answers with the metadata and
-// an entitlement flag, which is exactly the boundary this tool exists to report.
-// So their identifiers are harvested from public listings rather than from the
-// library, and an account that owns neither still exercises both surfaces.
-const ebookHit = firstItem(run(["search-type", "ebook-chapter", "认知"]).envelope, "list");
-if (ebookHit && ebookHit.detail && ebookHit.detail.enid) ids.ebook = ebookHit.detail.enid;
+// The library comes first, because only an owned title exercises the path that
+// matters: decrypting a chapter and reassembling its glyphs, or decrypting an
+// audio stream. A public listing still answers for the detail commands, so it
+// is the fallback -- an account that owns neither covers less, and the report
+// says so rather than implying otherwise.
+const ownedEbook = firstItem(run(["library", "ebook", "--page-size", "3"]).envelope, "list");
+if (ownedEbook && ownedEbook.enid) {
+  ids.ebook = ownedEbook.enid;
+  ids.ebookOwned = true;
+  // The chapter id has to come from this book's own contents. A guessed one
+  // tests the not-found path and reports it as coverage.
+  // Front matter -- a copyright page and the like -- has no body in the
+  // publisher's database, so the first entry is usually the wrong one to read.
+  // The numbered chapters are where the text is.
+  const contents = run(["ebook-chapters", ownedEbook.enid]);
+  if (contents.envelope && contents.envelope.ok) {
+    const toc = contents.envelope.data.toc || [];
+    const entry =
+      toc.find((item) => /^Chapter_\d+$/i.test(String(item.chapter_id || ""))) ||
+      toc.find((item) => item.chapter_id);
+    if (entry) ids.ebookChapter = entry.chapter_id;
+  }
+}
+if (!ids.ebook) {
+  const ebookHit = firstItem(run(["search-type", "ebook-chapter", "认知"]).envelope, "list");
+  if (ebookHit && ebookHit.detail && ebookHit.detail.enid) ids.ebook = ebookHit.detail.enid;
+}
+const ownedAudiobook = firstItem(run(["library", "audiobook", "--page-size", "3"]).envelope, "list");
+if (ownedAudiobook && ownedAudiobook.enid) {
+  ids.audiobook = ownedAudiobook.enid;
+  ids.audiobookOwned = true;
+  const detail = run(["audiobook", ownedAudiobook.enid]);
+  if (detail.envelope && detail.envelope.ok) {
+    const record = detail.envelope.data.detail || {};
+    if (record.audio_id) ids.audiobookAlias = record.audio_id;
+    // The agency's usable identifier is `id_str`; `id` is the string "0" on
+    // every record seen, so reading it would test the not-found path instead.
+    const agency = record.agency_detail || {};
+    if (agency.id_str) ids.audiobookAgency = agency.id_str;
+  }
+}
+
+// 知识城邦 topics publish their identifier as `topic_id_hazy`.
+const topic = firstItem(run(["topics"]).envelope, "list");
+if (topic && topic.topic_id_hazy) ids.topic = topic.topic_id_hazy;
 
 // Not every audiobook label lists products that carry a readable enid, so the
 // candidates are walked until one does rather than trusting the first.
@@ -180,7 +214,10 @@ const audiobookLabels = ((run(["labels", "1"]).envelope || { data: {} }).data.li
 // only accepted once the detail endpoint has actually answered for it. Trusting
 // the first one made the smoke report E_VALIDATION as a tool defect when the
 // real fault was the identifier this script had picked.
+// An owned audiobook is never replaced by a public one: only the owned track
+// exercises the decryption.
 outer: for (const candidate of audiobookLabels) {
+  if (ids.audiobookOwned && ids.audiobookAlias && ids.audiobookCollection) break;
   const listed = run(["label-content", candidate.enid, "1", "1"]);
   const products = (listed.envelope && listed.envelope.ok && listed.envelope.data.product_list) || [];
   for (const product of products.slice(0, 3)) {
@@ -190,12 +227,12 @@ outer: for (const candidate of audiobookLabels) {
     if (!product.product_enid) continue;
     const detail = run(["audiobook", product.product_enid]);
     if (!detail.envelope || !detail.envelope.ok) continue;
-    ids.audiobook = product.product_enid;
+    if (!ids.audiobookOwned) ids.audiobook = product.product_enid;
     // The detail names the track its alias endpoint reads.
     const record = detail.envelope.data.detail || {};
     if (record.audio_id) ids.audiobookAlias = record.audio_id;
     const agency = record.agency_detail || {};
-    if (agency.id && agency.id !== "0") ids.audiobookAgency = String(agency.id);
+    if (!ids.audiobookAgency && agency.id_str) ids.audiobookAgency = agency.id_str;
     break outer;
   }
 }
@@ -232,11 +269,17 @@ function argsFor(leaf) {
     "ebook-community": ids.ebook && [ids.ebook],
     // An unowned book answers E_FORBIDDEN here, which is the honest answer and
     // is recorded as one -- the entitlement path is worth exercising too.
-    "ebook-read": ids.ebook && [ids.ebook, "--chapter", "Chapter_1_1"],
+    "ebook-read": ids.ebook && [ids.ebook, "--chapter", ids.ebookChapter || "Chapter_1_1"],
     audiobook: ids.audiobook && [ids.audiobook],
     "audiobook-collection": ids.audiobookCollection && [ids.audiobookCollection],
     "audiobook-alias": ids.audiobookAlias && [ids.audiobookAlias],
     "audiobook-agency": ids.audiobookAgency && [ids.audiobookAgency],
+    topic: ids.topic && [ids.topic],
+    // Downloading is the only way to exercise the HLS decryption, so it runs
+    // when the account owns something to play. The file goes to a temporary
+    // path and is removed after the run; an unowned track answers E_FORBIDDEN,
+    // which is recorded as the answer it is.
+    "audiobook-media": ids.audiobook && [ids.audiobook, "--out", mediaProbePath],
     "getnote notes": ["--limit", "3"],
     "getnote note get": ids.getnote && [ids.getnote],
     "getnote tag list": ids.getnote && [ids.getnote],
@@ -395,6 +438,8 @@ if (includeWrites && notesAuthorized) {
 
 // ---- the run ---------------------------------------------------------------
 
+const mediaProbePath = path.join(require("os").tmpdir(), "live-smoke-audio.ts");
+
 const results = [];
 for (const leaf of leaves) {
   if (writeResults.has(leaf.name)) {
@@ -466,6 +511,12 @@ for (const leaf of leaves) {
 // The report records command names, outcomes, and field names only. No ids, no
 // payloads, no account content: it is evidence that the contract holds, and it
 // has to be safe to keep alongside the code.
+
+try {
+  fs.unlinkSync(mediaProbePath);
+} catch {
+  // Nothing was downloaded, or it is already gone.
+}
 
 const counts = results.reduce((tally, entry) => {
   tally[entry.status] = (tally[entry.status] || 0) + 1;

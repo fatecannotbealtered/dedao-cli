@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ebook`, `audiobook-agency` and `topic` each declared a shape with little or
+  nothing in common with the real one: `ebook` promised a nested
+  `book_info`/`price_info` record where the service sends 51 flat fields, and
+  the other two promised envelopes that never arrive. All three ran against the
+  live service for the first time here.
+- Business code 4000 -- the ebook page endpoint's "this chapter has no body",
+  which front matter such as a copyright page returns -- was a retryable
+  `E_SERVER`. It is permanent, so it is now `E_NOT_FOUND`.
+- The mock upstream now sets the CSRF cookie, requires `_csrf`, and checks the
+  token header name. It did none of these, which is why it could not fail while
+  the client got all three wrong.
 - Login worked for nobody. Two independent faults on the pre-QR path, each
   found by reproducing the call outside this tool: `/loginapi/getAccessToken`
   wants the site's `csrfToken` cookie echoed back as the form field `_csrf`, not

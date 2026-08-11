@@ -366,8 +366,12 @@ func businessCode(value any) string {
 	// Code 5218 is the audiobook detail endpoints' "no such product", reproduced
 	// with both a real id of the wrong kind and an obviously invalid one. Like
 	// 104000 it is permanent, so it must not arrive as a retryable fault.
+	// Code 4000 is the ebook page endpoint's "this chapter has no body": front
+	// matter such as a copyright page, and any chapter id that does not resolve.
+	// Reproduced against a real front-matter chapter in two different books and
+	// against an invented id. Permanent, like the two above.
 	switch asInt(value) {
-	case 104000, 5218:
+	case 104000, 5218, 4000:
 		return "E_NOT_FOUND"
 	case 90015:
 		return "E_FORBIDDEN"
