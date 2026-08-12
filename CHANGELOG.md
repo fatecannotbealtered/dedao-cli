@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Go toolchain is raised to 1.26.5: the new `govulncheck` CI gate found
+  five reachable Go standard-library vulnerabilities in 1.26.2 (`net`,
+  `net/http`, `crypto/x509`), all fixed upstream by 1.26.3/1.26.4.
 - `update --check` now reports the canonical keys the contract requires:
   `status` (`current` or `available`) and `target_version`. The non-canonical
   `latest_version` top-level key is removed; the `notice` object is unchanged.
