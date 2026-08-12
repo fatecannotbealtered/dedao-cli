@@ -10,7 +10,7 @@
 
 | 版本 | 是否支持 |
 |------|----------|
-| 最新 `1.1.0` minor | 是 |
+| 最新 `1.0.x` minor | 是 |
 | 旧 minor | 否 |
 
 ## 报告漏洞
@@ -47,6 +47,7 @@
 - **为什么钥匙串里放的是密钥而不是会话本身**：Windows 凭据管理器单条 blob 上限 2560 字节，而 cookie jar 比这大，直接存会话会在最可能有钥匙串的平台上失败。只放密钥既绕开上限，又让两种后端共用同一条加密路径。
 - **降级可见，不静默**：`context.data.credentials.storage` 与 `doctor` 的 `credentials` 检查会报告 `keyring` 或 `encrypted-file`；环境变量参与 GetNote 配置时，`context.data.credentials.getnote.storage` 还会报告 `environment` 或 `mixed`。`doctor` 只有在完成一次有界、只读的请求后才会把已配置的 GetNote 凭据标记为有效。回退后端的诚实边界是：机器绑定因子对已经以你身份运行的代码是可枚举的，所以它防的是状态目录被拷到另一台机器，不是本机恶意代码。`DEDAO_SECRET_BACKEND=file` 可强制走回退后端（测试套件用它，确保 `go test` 绝不碰真实凭据库）。
 - **历史明文会被迁移，而不是容忍**：旧版本写下的明文会话在首次读取时被封存，原明文文件随即删除。在此次升级之前离开过本机的任何副本，都应视为已泄露。
+- **待扫码登录状态是已记录的接受风险**：`login` 会把扫码登录的临时状态——匿名 OAuth token 和二维码字符串——以明文 JSON 形式持久化（`login-pending.json`，`0600` 文件、`0700` 目录），不经过加密 secret store。它是认证前状态，不是账号凭据，`login-resume` 完成或二维码过期时即被清除；但在登录中途被窃取的副本可以轮询 check-login 端点，在扫码瞬间截获会话。缓解手段是二维码的短有效期和完成即清除，而不是加密。
 - **文件权限**：文件以 `0600` 写入、目录 `0700`。这只是 POSIX 层面的陈述：Windows 上这些位不是 ACL，那里的保护来自用户目录 ACL 加上上述加密。
 - **凭据输入**：优先使用 `getnote auth login --api-key-stdin` 或 `GETNOTE_API_KEY`。兼容用的 `--api-key` flag 在部分系统上可能被其他本地进程从进程列表看到。
 - **脱敏**：token、`Authorization` 头、密码及其他敏感 flag 值在 stdout、stderr 和审计日志中均被脱敏（CLI-SPEC §10）。新增携带凭证的 flag 时，要把它登记进敏感 flag 列表。

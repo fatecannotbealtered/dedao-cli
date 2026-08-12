@@ -527,7 +527,7 @@ var commandExamples = map[string][]string{
 	"context":              {"dedao-cli context --compact"},
 	"doctor":               {"dedao-cli doctor --compact"},
 	"update":               {"dedao-cli update --check --compact", "dedao-cli update --compact"},
-	"changelog":            {"dedao-cli changelog --since 1.0.0 --compact"},
+	"changelog":            {"dedao-cli changelog --since <previous-version> --compact"},
 	"getnote auth login":   {"Get-Content api-key.txt | dedao-cli getnote auth login --api-key-stdin --client-id <client-id> --compact"},
 	"getnote auth status":  {"dedao-cli getnote auth status --compact"},
 	"getnote auth logout":  {"dedao-cli getnote auth logout --dry-run --compact", "dedao-cli getnote auth logout --confirm <confirm-token> --compact"},

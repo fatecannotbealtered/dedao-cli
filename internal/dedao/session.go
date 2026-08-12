@@ -202,6 +202,13 @@ func LegacyPlaintextFiles(stateDir string) []string {
 }
 
 // SessionBackend names where the session is held, for `context` and `doctor`.
+// The backend recorded in the stored session wins over a live probe: what
+// matters is where this session actually sits, not where a new one would go.
+// With nothing stored, the live backend says where a login would put it.
 func SessionBackend(stateDir string) string {
-	return secret.New(stateDir).Backend()
+	store := secret.New(stateDir)
+	if backend := store.StoredBackend(sessionSecret); backend != "" {
+		return backend
+	}
+	return store.Backend()
 }

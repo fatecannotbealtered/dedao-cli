@@ -18,11 +18,22 @@ func TestUpdateCheck_ReportsInstallMethodAndContract(t *testing.T) {
 	if got.Exit == 0 {
 		data := got.Data(t)
 		for _, field := range []string{
-			"current_version", "install_method", "update_available", "skill_sync_supported",
+			"status", "current_version", "target_version", "install_method",
+			"update_available", "skill_sync_supported",
 		} {
 			if _, ok := data[field]; !ok {
 				t.Errorf("update --check omitted %q", field)
 			}
+		}
+		// The canonical key is target_version (contract.json
+		// self_description.update); the old spelling must not come back.
+		if _, ok := data["latest_version"]; ok {
+			t.Error("update --check emitted non-canonical latest_version")
+		}
+		available, _ := data["update_available"].(bool)
+		status, _ := data["status"].(string)
+		if want := map[bool]string{false: "current", true: "available"}[available]; status != want {
+			t.Errorf("status = %q with update_available = %v, want %q", status, available, want)
 		}
 		return
 	}

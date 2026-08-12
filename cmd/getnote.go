@@ -685,7 +685,10 @@ func urlValues() url.Values { return url.Values{} }
 
 func (a *application) getnoteNoteCommand() *cobra.Command {
 	note := &cobra.Command{Use: "note", Short: "Read and manage GetNote notes", Args: cobra.NoArgs}
-	get := &cobra.Command{Use: "get <note-id>", Short: "Get a GetNote note", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	// The Short doubles as the reference description, so the id error split is
+	// stated where an agent reads it: GetNote rejects a malformed id before
+	// looking it up, so the two shapes arrive as different codes.
+	get := &cobra.Command{Use: "get <note-id>", Short: "Get a GetNote note; a malformed note id is E_VALIDATION (exit 2), a well-formed unknown id is E_NOT_FOUND (exit 3)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		c, _, err := a.getnoteClient()
 		if err != nil {
 			return err

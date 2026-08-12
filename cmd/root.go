@@ -23,9 +23,13 @@ import (
 
 var version = dedaocli.Version
 
-// SkillMinVersion is the tool version the bundled Skill was written against.
-// `doctor` compares it so a Skill that expects newer commands fails loudly
-// rather than calling something that does not exist (CLI-SPEC §14).
+// SkillMinVersion records the tool version the bundled Skill is paired with,
+// published as reference.minimum_skill_version and context.skill.minimum_version
+// (CLI-SPEC §14). It aliases the live version, so the in-binary comparison can
+// never fail on its own; cross-version drift -- a Skill synced ahead of a stale
+// binary -- is detected agent-side by comparing the installed Skill's
+// frontmatter min_version against the version doctor/context report (see
+// SKILL.md, "First step").
 var SkillMinVersion = dedaocli.Version
 
 type application struct {

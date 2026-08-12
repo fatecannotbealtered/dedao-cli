@@ -10,7 +10,7 @@ Security fixes are applied to the **latest minor release** on the default branch
 
 | Version | Supported |
 |---------|-----------|
-| latest `1.1.0` minor | Yes |
+| latest `1.0.x` minor | Yes |
 | older minors | No |
 
 ## Reporting a Vulnerability
@@ -47,6 +47,7 @@ Worst-case blast radius is bounded by the configured credentials and upstream po
 - **Why the keyring holds a key rather than the session**: a Windows credential blob is capped at 2560 bytes and a cookie jar is larger than that, so storing the session directly would fail on the platform most likely to have a keyring. Keeping only the key in the keyring sidesteps the limit and leaves one encryption path for both backends.
 - **The fallback is visible, not silent**: `context.data.credentials.storage` and the `doctor` `credentials` check report `keyring` or `encrypted-file`; `context.data.credentials.getnote.storage` additionally reports `environment` or `mixed` when those channels are active. `doctor` verifies configured GetNote credentials with a bounded read-only request before reporting them valid. The fallback's honest limit: machine-bound factors are enumerable by anything already running as you, so it defeats a state directory copied to another machine, not local code running as your user. `DEDAO_SECRET_BACKEND=file` forces the fallback (used by the test suite so `go test` never touches a real credential store).
 - **Legacy plaintext is migrated, not tolerated**: a session written by an earlier build is sealed on first read and the plaintext original deleted. Assume any copy that left the machine before that upgrade is compromised.
+- **Pending QR login is a documented accepted risk**: `login` persists the transient QR-login state — the anonymous OAuth token and the QR string — as plaintext JSON (`login-pending.json`, `0600` in a `0700` directory) rather than through the sealed store. It is pre-authentication state, not an account credential, and it is cleared when `login-resume` completes or the code expires; but a copy exfiltrated mid-login could poll the check-login endpoint and capture the session at scan time. The mitigation is the short QR TTL and the clear-on-completion behavior, not encryption.
 - **File permissions**: files are written `0600` in a `0700` directory. That is a POSIX statement only: on Windows those mode bits are not ACLs, and protection there comes from the user-profile ACL plus the encryption above.
 - **Credential input**: prefer `getnote auth login --api-key-stdin` or `GETNOTE_API_KEY`; the compatibility `--api-key` flag can be visible to other local processes through the process list on some systems.
 

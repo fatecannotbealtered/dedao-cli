@@ -56,7 +56,7 @@ Worst-case risk tier: **T1** - the tool holds account credentials and can make e
 | Area | Commands | Agent use |
 |------|----------|-----------|
 | Library | `library`, `library-nav`, `library-groups`, `library-group`, `recent`, `progress` | List what the account owns, and where it left off. |
-| Courses | `course`, `articles`, `article`, `article-captions`, `article-notes`, `comments`, `daily` | Inspect a course, list its articles, read one article's body or its video captions, and collect what is new since the last run. |
+| Courses | `course`, `articles`, `article`, `article-captions`, `article-notes`, `comments`, `daily` | Inspect a course, list its articles, read one article's body, its video captions, or its notes and comments, and collect what is new since the last run. |
 | Books and audio | `ebook`, `ebook-chapters`, `ebook-read`, `ebook-community`, `audiobook`, `audiobook-alias`, `audiobook-agency`, `audiobook-collection`, `audiobook-vip`, `audiobook-media` | Read an owned ebook's contents and chapters, save an authorized audiobook locally, and read 听书 metadata and membership state. |
 | Search | `search`, `search-type`, `search-suggest`, `search-hot` | Search owned content or a named scope. |
 | Discovery | `discover`, `labels`, `label-content`, `free`, `live`, `channel`, `channel-topic`, `channel-articles`, `topics`, `topic`, `note` | Browse 知识城邦, labels, free resources, and live sessions. |
@@ -156,7 +156,7 @@ make fmt
 npm ci --ignore-scripts
 ```
 
-Release gate: every public behavior documented in README, Skill, `reference`, `--help`, `context`, `doctor`, or `changelog` must have command-level tests. The target is **Functional Contract Coverage = 100%**; numeric line coverage is secondary. `dedao-cli reference` reports `release_readiness.level`; without recorded live smoke/E2E evidence, the tool must declare `beta`, not `stable`. Run `npm run live-smoke -- --include-writes` against a signed-in account before a release; see [docs/E2E.md](docs/E2E.md).
+Release gate: every public behavior documented in README, Skill, `reference`, `--help`, `context`, `doctor`, `changelog`, or `update` must have command-level tests. The target is **Functional Contract Coverage = 100%**; numeric line coverage is secondary. `dedao-cli reference` reports `release_readiness.level`; without recorded live smoke/E2E evidence, the tool must declare `beta`, not `stable`. Run `npm run live-smoke -- --include-writes` against a signed-in account before a release; see [docs/E2E.md](docs/E2E.md).
 
 ## Links
 

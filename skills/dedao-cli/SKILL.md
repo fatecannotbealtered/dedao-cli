@@ -1,10 +1,10 @@
 ---
 name: dedao-cli
-version: "1.0.0"
+version: "1.0.1"
 description: "Reads a Dedao (得到) account's owned learning content and manages notes through GetNote's official OpenAPI. Use for 得到/Dedao libraries, courses, ebooks, audiobooks, article text, comments, personal notes, topics and discovery; also use for GetNote/得到笔记 requests to save, list, read, search, update, delete, tag, share, or organize notes in knowledge bases. Dedao remains read-only. Every GetNote write requires dry-run then a payload-bound confirmation token."
 license: MIT
 user-invocable: true
-metadata: {"requires":{"bins":["dedao-cli"],"min_version":"1.0.0"}}
+metadata: {"requires":{"bins":["dedao-cli"],"min_version":"1.0.1"}}
 ---
 
 # dedao-cli
@@ -121,6 +121,11 @@ dedao-cli doctor --compact           # environment and version check before real
 
 `context.credentials.valid` comes from a real probe. A stored-but-expired
 session reports `configured: true, valid: false` — treat that as logged out.
+
+Compare this Skill's frontmatter `metadata.requires.min_version` against
+`data.version` from `context` or `doctor`. If the binary is older, STOP and run
+`dedao-cli update` (or the npm command `doctor` suggests) before real work — the
+binary itself cannot detect a Skill synced ahead of it.
 
 ## Logging in requires a human
 

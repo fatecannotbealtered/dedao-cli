@@ -142,6 +142,23 @@ func TestReference_ReleaseReadinessIsHonest(t *testing.T) {
 	}
 }
 
+// live_smoke_total_commands is a recorded measurement, but the command surface
+// it measured is live: a leaf added or removed without re-recording the smoke
+// evidence would silently misstate the denominator. The leaf enumeration is
+// the same one the FCC guard uses, so the two gates cannot disagree.
+func TestReference_LiveSmokeTotalMatchesTheLeafCommandCount(t *testing.T) {
+	leaves, _ := fccReferenceFacts(t)
+	total, ok := releaseReadiness["live_smoke_total_commands"].(int)
+	if !ok {
+		t.Fatalf("live_smoke_total_commands = %v, want a declared int",
+			releaseReadiness["live_smoke_total_commands"])
+	}
+	if len(leaves) != total {
+		t.Errorf("reference enumerates %d leaf commands but live_smoke_total_commands = %d; "+
+			"re-record the live smoke and update release_readiness", len(leaves), total)
+	}
+}
+
 func TestDoctor_ReportsReleaseReadinessConsistentWithReference(t *testing.T) {
 	referenceData := runCLI(t, nil, "reference", "--compact").Data(t)
 	readiness, _ := referenceData["release_readiness"].(map[string]any)

@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-12
+
+### Added
+
+- `SECURITY.md` documents the pending QR-login window as an accepted risk:
+  `login` persists the anonymous OAuth token and QR string as plaintext JSON
+  (`login-pending.json`, `0600`/`0700`) outside the sealed store. It is
+  pre-authentication state cleared on resume or expiry, but a copy exfiltrated
+  mid-login could poll check-login and capture the session at scan time; the
+  mitigation is the short QR TTL and clear-on-completion, not encryption.
+- The `getnote note get` reference description states the id error split: a
+  malformed note id is `E_VALIDATION` (exit 2), a well-formed unknown id is
+  `E_NOT_FOUND` (exit 3).
+- A guard test pins `release_readiness.live_smoke_total_commands` to the leaf
+  command count `reference` enumerates, so a command added or removed without
+  re-recording the live smoke fails the build instead of misstating the
+  denominator.
+- CI runs `govulncheck ./...` in the lint job.
+- `scripts/check-clean.sh` fails CI when a tracked root-level file falls
+  outside the explicit repo-skeleton allowlist, blocking committed debug
+  captures and scraped assets.
+
+### Changed
+
+- `update --check` now reports the canonical keys the contract requires:
+  `status` (`current` or `available`) and `target_version`. The non-canonical
+  `latest_version` top-level key is removed; the `notice` object is unchanged.
+- `context.data.credentials.storage` and the `doctor` `credentials` check now
+  report the backend recorded in the stored Dedao session, falling back to a
+  live probe only when nothing is stored — so a session sealed before a
+  keyring-to-file degradation (or the reverse) is reported where it actually
+  sits.
+- The `changelog` example in `reference` uses the `<previous-version>`
+  placeholder instead of a hardcoded version literal.
+
+### Fixed
+
+- `README.md` had drifted from `README_zh.md`: the release-gate enumeration
+  was missing `update`, and the Courses capability row did not mention the
+  notes-and-comments reading that `article-notes` and `comments` provide.
+
 ## [1.0.0] - 2026-08-11
 
 ### Added
@@ -330,6 +371,6 @@ Keep the link references at the bottom of the file in sync.
 
 -->
 
-[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.1.0
+[Unreleased]: https://github.com/fatecannotbealtered/dedao-cli/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.0.1
 [1.0.0]: https://github.com/fatecannotbealtered/dedao-cli/releases/tag/v1.0.0

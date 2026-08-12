@@ -1,6 +1,6 @@
 {
   "name": "@fateforge/dedao-cli",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AI-native CLI for read-only Dedao access and confirmation-gated GetNote note management",
   "license": "MIT",
   "author": "Sean Guo",
@@ -21,12 +21,12 @@
     "live-smoke": "node scripts/live-smoke.js"
   },
   "optionalDependencies": {
-    "@fateforge/dedao-cli-darwin-arm64": "1.0.0",
-    "@fateforge/dedao-cli-darwin-x64": "1.0.0",
-    "@fateforge/dedao-cli-linux-arm64": "1.0.0",
-    "@fateforge/dedao-cli-linux-x64": "1.0.0",
-    "@fateforge/dedao-cli-win32-arm64": "1.0.0",
-    "@fateforge/dedao-cli-win32-x64": "1.0.0"
+    "@fateforge/dedao-cli-darwin-arm64": "1.0.1",
+    "@fateforge/dedao-cli-darwin-x64": "1.0.1",
+    "@fateforge/dedao-cli-linux-arm64": "1.0.1",
+    "@fateforge/dedao-cli-linux-x64": "1.0.1",
+    "@fateforge/dedao-cli-win32-arm64": "1.0.1",
+    "@fateforge/dedao-cli-win32-x64": "1.0.1"
   },
   "files": [
     "scripts/run.js",

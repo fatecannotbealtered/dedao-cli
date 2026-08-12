@@ -70,11 +70,18 @@ func (a *application) updateCommand() *cobra.Command {
 				if method == update.MethodNPM && notice != nil {
 					command = fmt.Sprintf("npm install -g %s@%s", updateConfig.NPMPackage, latest)
 				}
+				// "current" is the vocabulary the full run already uses for an
+				// up-to-date install; "available" is its check-only complement.
+				status := "current"
+				if notice != nil {
+					status = "available"
+				}
 				return a.success(map[string]any{
+					"status":               status,
 					"current_version":      version,
 					"install_method":       string(method),
 					"update_available":     notice != nil,
-					"latest_version":       latest,
+					"target_version":       latest,
 					"command":              command,
 					"skill_sync_supported": true,
 					"signature_available":  true,
