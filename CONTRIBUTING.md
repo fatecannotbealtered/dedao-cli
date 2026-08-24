@@ -20,37 +20,29 @@ These specs are authoritative and take priority over default habits. Code that v
 
 ## Development setup
 
-<!--
-language toolchain — keep ONE block below, delete the others:
-  - Go 1.25+        : compiled binary + npm wrapper
-  - Python 3.10+    : PyInstaller binary + npm wrapper
-  - Node 16+        : required for the npm wrapper / platform-package scripts in all variants
-The shape is always: install deps -> build -> test -> run `--help` smoke test.
--->
-
 ```bash
 # Clone
 git clone https://github.com/fatecannotbealtered/dedao-cli.git
 cd dedao-cli
 
-pip install -e ".[dev]"
-python build.py
-pytest tests/ -v
-dedao-cli --help
+go mod download
+make build
+make test
+./bin/dedao-cli --help
 
-# Optional: Node.js 16+ if you touch npm wrapper or platform-package scripts
+# Optional: Node.js 16+ if you touch the npm wrapper or platform-package scripts
 ```
 
-If dependency download is slow, use a regional proxy (e.g. Go: `GOPROXY=https://goproxy.cn,direct`; pip: a mirror index).
+If dependency download is slow, use a regional proxy: `GOPROXY=https://goproxy.cn,direct`.
 
 ## Commands
 
 | Goal | ▶ Command |
 |------|-----------|
-| Build | `make build` (Go) / `python build.py` (Python) |
-| Test | `make test` → `go test -race ./...` / `pytest tests/ -v` |
-| Lint | `make lint` → `golangci-lint run ./...` / `ruff check .` |
-| Format | `make fmt` → `gofmt -w .` / `ruff format .` |
+| Build | `make build` → compiled binary into `bin/` |
+| Test | `make test` → `go vet ./...` then `go test -race ./...` |
+| Lint | `make lint` → `golangci-lint run ./...` (installs it if missing) |
+| Format | `make fmt` → `gofmt -w .`; `make check-fmt` fails instead of rewriting |
 
 `make` targets are variable-driven; on Windows fall back to the underlying tool command. New contributors should run **lint + test** locally before pushing.
 

@@ -106,6 +106,15 @@ jobs:
           node-version: '20'
           cache: npm
 
+      # gen-contract.js shells out to gofmt, and check-spec.js re-runs it to
+      # byte-compare against the committed module. Without Go in this job the
+      # generator fails closed rather than emitting unformatted output, so the
+      # codegen verifier is given the codegen's own toolchain. Do not rely on
+      # the runner image happening to preinstall Go.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: Install package metadata
         # `npm ci` not `npm install`: the audit job must resolve exactly the
         # committed lockfile, or it audits a tree the release never ships.
